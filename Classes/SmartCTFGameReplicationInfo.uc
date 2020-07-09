@@ -5,7 +5,8 @@
 class SmartCTFGameReplicationInfo expands ReplicationInfo;
 
 var int TickRate;
-var bool bShowFCLocation, bStatsDrawFaces, bPlay30SecSound, bDrawLogo;
+var bool bShowFCLocation, bStatsDrawFaces, bPlay30SecSound, bDrawLogo, bExtraStats;
+var string CountryFlagsPackage;
 var class<ScoreBoard> NormalScoreBoardClass;
 var SmartCTFEndStats EndStats;
 var SmartCTFPlayerReplicationInfo PRIArray[64];
@@ -16,7 +17,7 @@ replication
 {
   // Settings
   reliable if( Role == ROLE_Authority )
-    bShowFCLocation, bPlay30SecSound, bStatsDrawFaces, bDrawLogo;
+    bShowFCLocation, bPlay30SecSound, bStatsDrawFaces, bDrawLogo, bExtraStats, CountryFlagsPackage;
 
   reliable if( Role == ROLE_Authority )
     bInitialized, TickRate, NormalScoreBoardClass, EndStats, bServerInfoSetServerSide, DefaultHUDType;

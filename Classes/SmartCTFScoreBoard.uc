@@ -21,8 +21,32 @@ var PlayerReplicationInfo pPRI;
 var Font StatFont, CapFont, FooterFont, GameEndedFont, PlayerNameFont, FragsFont, TinyInfoFont;
 var Font PtsFont22, PtsFont20, PtsFont18, PtsFont16, PtsFont14, PtsFont12;
 
-var int MaxCaps, MaxAssists, MaxGrabs, MaxCovers, MaxSeals, MaxFlagKills, MaxFrags, MaxDeaths;
+var int MaxCaps, MaxAssists, MaxGrabs, MaxCovers, MaxSeals, MaxDefKills, MaxFlagKills, MaxFrags, MaxDeaths;
 var int TotShieldBelts, TotAmps;
+
+var bool bSealsOrDefs;
+var bool bStarted;
+var bool bEndHandled;
+
+struct FlagData {
+	var string Prefix;
+	var texture Tex;
+};
+var FlagData FD[32]; // there can be max 32 so max 32 different flags
+var int saveindex; // new loaded flags will be saved in FD[index]
+
+function int GetFlagIndex(string Prefix)
+{
+	local int i;
+	for(i=0;i<32;i++)
+		if(FD[i].Prefix == Prefix)
+			return i;
+	FD[saveindex].Prefix=Prefix;
+	FD[saveindex].Tex=texture(DynamicLoadObject(SCTFGame.CountryFlagsPackage$"."$Prefix, class'Texture'));
+	i=saveindex;
+	saveindex = (saveindex+1) % 256;
+	return i;
+}
 
 function PostBeginPlay()
 {
@@ -43,6 +67,11 @@ function PostBeginPlay()
 
   SpawnNormalScoreBoard();
   if( NormalScoreBoard == None ) SetTimer( 1.0 , True );
+  else
+  {
+      bStarted = True;
+      SetTimer( 3.0, true);
+  }
 }
 
 // Try to spawn a local instance of the original scoreboard class if it doesn't exist already.
@@ -77,27 +106,36 @@ function SpawnNormalScoreBoard()
 // In the case of the 'normal scoreboard' not being replicated properly, try every second to see if it has.
 function Timer()
 {
-  if( NormalScoreBoard == None )
+  if(!bStarted)
   {
-    TryCount++;
-    SpawnNormalScoreBoard();
-  }
+      if( NormalScoreBoard == None )
+      {
+        TryCount++;
+        SpawnNormalScoreBoard();
+      }
 
-  if( NormalScoreBoard != None )
-  {
-    SetTimer( 0.0, False );
-  }
-  else if( TryCount > 3 )
-  {
-    Log( "Given up. Using the default CTF ScoreBoard instead." , 'SmartCTF' );
+      if( NormalScoreBoard != None )
+      {
+        bStarted = True;
+        SetTimer( 3.0, True );
+      }
+      else if( TryCount > 3 )
+      {
+        Log( "Given up. Using the default CTF ScoreBoard instead." , 'SmartCTF' );
 
-    if( NormalScoreBoard == None )
-    {
-      NormalScoreBoard = Spawn( class'UnrealCTFScoreBoard', PlayerOwner );
-      Log( "Spawned as" @ NormalScoreBoard, 'SmartCTF' );
+        if( NormalScoreBoard == None )
+        {
+          NormalScoreBoard = Spawn( class'UnrealCTFScoreBoard', PlayerOwner );
+          Log( "Spawned as" @ NormalScoreBoard, 'SmartCTF' );
+        }
+        bStarted = True;
+        SetTimer( 3.0, True );
+      }
     }
-    SetTimer( 0.0, False );
-  }
+    else
+    {
+        bSealsOrDefs = !bSealsOrDefs;
+    }
 }
 
 function ShowScores( Canvas C )
@@ -109,10 +147,15 @@ function ShowScores( Canvas C )
     return;
   }
 
+    if(OwnerStats.bEndStats && !bEndHandled)
+    {
+        bEndHandled = True;
+        bSealsOrDefs = True;
+        SetTimer(10, true);
+    }
+
   if( OwnerStats.bViewingStats )
-  {
     SmartCTFShowScores( C );
-  }
   else
   {
     if( NormalScoreBoard == None ) SmartCTFShowScores( C );
@@ -156,6 +199,7 @@ function SmartCTFShowScores( Canvas C )
   local Color TeamColor, TempColor;
   local string TempStr;
   local SmartCTFPlayerReplicationInfo PlayerStats, PlayerStats2;
+  local int FlagShift; /* shifting elements to fit a flag */
 
   if( Level.TimeSeconds - LastSortTime > 0.5 )
   {
@@ -319,6 +363,7 @@ function SmartCTFShowScores( Canvas C )
 
       // Draw the player name
       C.SetPos( X + StatIndent, Y );
+
       C.Font = PlayerNameFont;
       if( Ordered[i].bAdmin ) C.DrawColor = White;
       else if( Ordered[i].PlayerID == pPRI.PlayerID ) C.DrawColor = Yellow;
@@ -345,14 +390,26 @@ function SmartCTFShowScores( Canvas C )
       C.SetPos( X + StatIndent + Size + StatsHorSpacing, Y + ( NameHeight - DummyY * 2 ) / 2 + DummyY );
       C.DrawText( "TM:" $ Time $ " EFF:" $ Clamp( int( Eff ), 0, 100 ) $ "%" );
 
+      // Draw the country flag
+      if(PlayerStats.CountryPrefix != "")
+      {
+        C.SetPos( X+8, Y + StatIndent);
+        C.bNoSmooth = False;
+        C.DrawColor = White;
+        C.DrawIcon(FD[GetFlagIndex(PlayerStats.CountryPrefix)].Tex, 1.0);
+        FlagShift=12;
+        C.bNoSmooth = True;
+      }
+      else
+        FlagShift=0;
       // Draw Bot or Ping/PL
-      C.SetPos( X, Y + StatIndent );
+      C.SetPos( X, Y + StatIndent + FlagShift);
       if( Ordered[i].bIsABot )
       {
         C.DrawText( "BOT" );
         if( Ordered[i].Team == pPRI.Team )
         {
-          C.SetPos( X, Y + StatIndent + DummyY );
+          C.SetPos( X, Y + StatIndent + DummyY);
           C.DrawText( Left( string( BotReplicationInfo( Ordered[i] ).RealOrders ) , 3 ) );
         }
       }
@@ -363,7 +420,7 @@ function SmartCTFShowScores( Canvas C )
         if( Len( TempStr ) > 5 ) TempStr = "P:" $ Ordered[i].Ping;
         if( Len( TempStr ) > 5 ) TempStr = string( Ordered[i].Ping );
         C.DrawText( TempStr );
-        C.SetPos( X, Y + StatIndent + DummyY );
+        C.SetPos( X, Y + StatIndent + DummyY + FlagShift);
         TempStr = "PL:" $ Ordered[i].PacketLoss $ "%";
         if( Len( TempStr ) > 5 ) TempStr = "L:" $ Ordered[i].PacketLoss $ "%";
         if( Len( TempStr ) > 5 ) TempStr = "L:" $ Ordered[i].PacketLoss;
@@ -405,20 +462,49 @@ function SmartCTFShowScores( Canvas C )
         DrawStatType( C, X, Y, 1, 1, "Caps: ", PlayerStats.Captures, MaxCaps );
         DrawStatType( C, X, Y, 1, 2, "Assists: ", PlayerStats.Assists, MaxAssists );
         DrawStatType( C, X, Y, 1, 3, "Grabs: ", PlayerStats.Grabs, MaxGrabs );
-        DrawStatType( C, X, Y, 2, 1, "Covers: ", PlayerStats.Covers, MaxCovers );
-        if( MaxSeals > 0 ) DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
-        else DrawStatType( C, X, Y, 2, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
+        if(SCTFGame.bExtraStats)
+        {
+          if( bSealsOrDefs) {
+              DrawStatType( C, X, Y, 2, 2, "DefKills: ", PlayerStats.DefKills, MaxDefKills );
+              DrawStatType( C, X, Y, 2, 1, "Covers: ", PlayerStats.Covers, MaxCovers );
+          }
+          else {
+              DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
+              DrawStatType( C, X, Y, 2, 1, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
+          }
+        }
+        else
+        {
+          DrawStatType( C, X, Y, 2, 1, "Covers: ", PlayerStats.Covers, MaxCovers );
+          if( MaxSeals > 0 ) DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
+          else DrawStatType( C, X, Y, 2, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
+        }
         DrawStatType( C, X, Y, 2, 3, "FlagKls: ", PlayerStats.FlagKills, MaxFlagKills );
       }
       else
       {
         DrawStatType( C, X, Y, 1, 1, "Caps: ", PlayerStats.Captures, MaxCaps );
-        DrawStatType( C, X, Y, 1, 2, "Covers: ", PlayerStats.Covers, MaxCovers );
         DrawStatType( C, X, Y, 2, 1, "Grabs: ", PlayerStats.Grabs, MaxGrabs );
-        if( MaxSeals > 0 ) DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
-        else DrawStatType( C, X, Y, 2, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
-        DrawStatType( C, X, Y, 3, 1, "Assists: ", PlayerStats.Assists, MaxAssists );
-        DrawStatType( C, X, Y, 3, 2, "FlagKls: ", PlayerStats.FlagKills, MaxFlagKills );
+
+        if(SCTFGame.bExtraStats)
+        {
+          if( bSealsOrDefs) {
+              DrawStatType( C, X, Y, 2, 2, "DefKills: ", PlayerStats.DefKills, MaxDefKills );
+              DrawStatType( C, X, Y, 1, 2, "Covers: ", PlayerStats.Covers, MaxCovers );
+          }
+          else {
+              DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
+              DrawStatType( C, X, Y, 1, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
+          }
+        }
+        else
+        {
+          DrawStatType( C, X, Y, 1, 2, "Covers: ", PlayerStats.Covers, MaxCovers );
+          if( MaxSeals > 0 ) DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
+          else DrawStatType( C, X, Y, 2, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
+        }
+          DrawStatType( C, X, Y, 3, 1, "Assists: ", PlayerStats.Assists, MaxAssists );
+          DrawStatType( C, X, Y, 3, 2, "FlagKls: ", PlayerStats.FlagKills, MaxFlagKills );
       }
 
       Y += StatBlockHeight + StatBlockSpacing;
@@ -785,6 +871,7 @@ function RecountNumbers()
   MaxGrabs = 0;
   MaxCovers = 0;
   MaxSeals = 0;
+  MaxDefKills = 0;
   MaxFlagKills = 0;
   MaxFrags = 0;
   MaxDeaths = 0;
@@ -806,6 +893,7 @@ function RecountNumbers()
       if( PlayerStats.Grabs > MaxGrabs ) MaxGrabs = PlayerStats.Grabs;
       if( PlayerStats.Covers > MaxCovers ) MaxCovers = PlayerStats.Covers;
       if( PlayerStats.Seals > MaxSeals ) MaxSeals = PlayerStats.Seals;
+      if( PlayerStats.DefKills > MaxDefKills ) MaxDefKills = PlayerStats.DefKills;
       if( PlayerStats.FlagKills > MaxFlagKills ) MaxFlagKills = PlayerStats.FlagKills;
       if( PlayerStats.Frags > MaxFrags ) MaxFrags = PlayerStats.Frags;
       TotShieldBelts += PlayerStats.ShieldBelts;
@@ -821,7 +909,7 @@ defaultproperties
      FragsText="Frags"
      SepText=" / "
      MoreText="More..."
-     HeaderText="[ SmartCTF 4C | {PiN}Kev | {DnF2}SiNiSTeR | March 2005 | http://www.dnfclan.com/~sin/SmartCTF ]"
+     HeaderText="[ SmartCTF 4D | {PiN}Kev | {DnF2}SiNiSTeR | 4D by [es]Rush ]"
      White=(R=255,G=255,B=255)
      Gray=(R=128,G=128,B=128)
      DarkGray=(R=32,G=32,B=32)

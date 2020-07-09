@@ -1,20 +1,24 @@
 // SmartCTF 4 by {PiN}Kev. Released January 2004.
 // SmartCTF 4A Tweaked by {DnF2}SiNiSTeR. Released December 2004.
 // SmartCTF 4B/4C Uber Massively tweaked by {DnF2}SiNiSTeR. Released March 2005.
+// SmartCTF 4D with IpToCountry by [es]Rush. Released January 2006.
 //
 // This mod changes the point system and adds features to ultimately promote Teamwork in CTF.
 // This is a CTF Mod only. It will not load in any other gametype.
 //
-// Contact Info: Private Message me, {PiN}Hai-Ping, on http://forums.prounreal.com
+// Contact Info: private Message me, {PiN}Hai-Ping, on http://forums.prounreal.com
 //               {DnF2}SiNiSTeR @ #DutchNet [QuakeNet IRC]
+//       or if it is about version 4D explicictly
+//               Rush on unrealadmin.org forums / mail and msn: rush@u.one.pl
+//
 //
 // CHANGELOG: See Readme
 
-class SmartCTF expands Mutator config( SmartCTF_4C );
+class SmartCTF expands Mutator config( SmartCTF_4D );
 
-#exec texture IMPORT NAME=meter FILE=Textures\meter.pcx GROUP=SmartCTF
-#exec texture IMPORT NAME=powered File=Textures\powered.pcx GROUP=SmartCTF
-#exec texture IMPORT NAME=shade File=Textures\shade.pcx GROUP=SmartCTF
+#exec texture IMPORT NAME=meter FILE=Textures\meter.pcx GROUP=SmartCTF MIPS=OFF
+#exec texture IMPORT NAME=shade File=Textures\shade.pcx GROUP=SmartCTF MIPS=OFF
+#exec texture IMPORT NAME=powered File=Textures\powered.pcx GROUP=SmartCTF MIPS=OFF
 
 /* Server Vars */
 var SmartCTFGameReplicationInfo SCTFGame;
@@ -32,7 +36,6 @@ var bool bForcedEndGame, bTournamentGameStarted, bTooCloseForSaves;
 /* Client Vars */
 var bool bClientJoinPlayer, bGameEnded;
 var int LogoCounter, DrawLogo;
-var string LogoText;
 var PlayerPawn PlayerOwner;
 var FontInfo MyFonts;
 var TournamentGameReplicationInfo pTGRI;
@@ -42,6 +45,8 @@ var Color RedTeamColor, BlueTeamColor, White, Gray;
 
 /* Server Vars Configurable */
 var() config bool bEnabled;
+var() config bool bExtraStats;
+var() config string CountryFlagsPackage;
 var(SmartCTFBonuses) config int CapBonus, AssistBonus, FlagKillBonus, CoverBonus, SealBonus, GrabBonus;
 var(SmartCTFBonuses) config float BaseReturnBonus, MidReturnBonus, EnemyBaseReturnBonus, CloseSaveReturnBonus;
 var(SmartCTFBonuses) config int SpawnKillPenalty, MinimalCapBonus;
@@ -75,6 +80,7 @@ var(OvertimeControl) config bool bEnableOvertimeControl;
 var(OvertimeControl) config bool bOvertime;
 var(OvertimeControl) config bool bRememberOvertimeSetting;
 
+var texture powered;
 
 /*
  * Check if we should spawn a SmartCTF instance.
@@ -101,7 +107,6 @@ function PreBeginPlay()
   local Mutator M;
 
   super.PreBeginPlay();
-
   SCTFGame.NormalScoreBoardClass = Level.Game.ScoreBoardType;
   Level.Game.ScoreBoardType = class'SmartCTFScoreBoard';
   //Level.Game.default.ScoreBoardType = class'SmartCTFScoreBoard';
@@ -143,8 +148,10 @@ function PreBeginPlay()
 function PostBeginPlay()
 {
   local FlagBase fb;
+  local Actor A;
+  local Actor IpToCountry;
 
-  Level.Game.Spawn( class'SmartCTFSpawnNotifyPRI' );
+  Level.Game.Spawn( class'SmartCTFSpawnNotifyPRI');
 
   SaveConfig(); // Create the .ini if its not already there.
 
@@ -155,6 +162,8 @@ function PostBeginPlay()
   SCTFGame.bPlay30SecSound = bPlay30SecSound;
   SCTFGame.bStatsDrawFaces = bStatsDrawFaces;
   SCTFGame.bDrawLogo = bDrawLogo;
+  SCTFGame.bExtraStats = bExtraStats;
+  SCTFGame.CountryFlagsPackage = CountryFlagsPackage;
 
   if( !bRememberOvertimeSetting ) bOvertime = True;
 
@@ -305,7 +314,6 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
     VictimStats.FragSpree = 0; // Reset FragSpree for Victim
     VictimStats.SpawnKillSpree = 0;
   }
-
   // If there is no killer / suicide, return.
   if( Killer == None || Killer == Victim )
   {
@@ -315,7 +323,6 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
   KillerPRI = Killer.PlayerReplicationInfo;
   if( KillerPRI == None || !Killer.bIsPlayer || ( KillerPRI.bIsSpectator && !KillerPRI.bWaitingPlayer ) ) return bPrevent;
   KillerStats = SCTFGame.GetStats( Killer );
-
   // Same Team! We don't count those stats like that in SmartCTF.
   if( VictimPRI.Team == KillerPRI.Team ) return bPrevent;
 
@@ -325,7 +332,6 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
     KillerStats.Frags++;
     KillerStats.FragSpree++;
   }
-
   if( bEnhancedMultiKill && EnhancedMultiKillBroadcast > 0 )
   {
     VictimStats.MultiLevel = 0;
@@ -340,11 +346,11 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
     }
     KillerStats.LastKillTime = Level.TimeSeconds;
   }
-
   bWarmupSkip = DeathMatchPlus( Level.Game ).bTournament && !bTournamentGameStarted;
 
   if( !bWarmupSkip )
   {
+
     // For Flag Kill, inc player's FlagKills and total
     if( VictimPRI.HasFlag != None )
     {
@@ -408,10 +414,8 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
         }
       }
 
-      // Seal kill
-      // If the map has player zones
-      if( VictimPRI.PlayerZone != None )
-      {
+        // Defense kill
+        // If the map has player zones
         bVictimTeamHasFlag = True;
         if( FCs[VictimPRI.Team] == None ) bVictimTeamHasFlag = False;
         if( FCs[VictimPRI.Team] != None && FCs[VictimPRI.Team].PlayerReplicationInfo.HasFlag == None ) bVictimTeamHasFlag = False;
@@ -426,6 +430,8 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
             {
               KillerStats.Seals++;
               KillerStats.SealSpree++;
+              if(CTFReplicationInfo( Level.Game.GameReplicationInfo ).FlagList[KillerPRI.Team].bHome) // only if flag is at home
+                 KillerStats.DefKills++; // seal is also a defkill
             }
             KillerPRI.Score += SealBonus;
             if( SealMsgType != 0 && KillerStats != None && KillerStats.SealSpree == 2 ) // Sealing base
@@ -434,15 +440,30 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
               else if( SealMsgType == 2 ) BroadcastMessage( class'SmartCTFMessage'.static.GetString( 1, KillerPRI, VictimPRI ) );
               else if( SealMsgType == 3 ) BroadcastLocalizedMessage( class'SmartCTFMessage', 1, KillerPRI, VictimPRI );
             }
-
             // Log seal
             if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "flag_seal", KillerPRI.PlayerID, VictimPRI.PlayerID, KillerPRI.Team ); // Log to ngLog;
           }
         }
       }
+    else // our team don't have a flag
+    {
+        bVictimTeamHasFlag = True;
+        if( FCs[VictimPRI.Team] == None ) bVictimTeamHasFlag = False;
+        if( FCs[VictimPRI.Team] != None && FCs[VictimPRI.Team].PlayerReplicationInfo.HasFlag == None ) bVictimTeamHasFlag = False;
+        // Defense kill
+        // If the map has player zones
+        if( VictimPRI.PlayerZone != None )
+        {
+           if( IsInZone( VictimPRI, KillerPRI.Team ) && !bVictimTeamHasFlag && CTFReplicationInfo( Level.Game.GameReplicationInfo ).FlagList[KillerPRI.Team].bHome)
+           {
+              if( KillerStats != None )
+              {
+                KillerStats.DefKills++;
+              }
+            }
+        }
     }
-  }
-
+    }
   if( bAfterGodLikeMsg && KillerStats != None && ( KillerStats.FragSpree == 30 || KillerStats.FragSpree == 35 ) )
   {
     for( pn = Level.PawnList; pn != None; pn = pn.NextPawn )
@@ -1009,6 +1030,8 @@ function Mutate( string MutateString, PlayerPawn Sender )
       Sender.ClientMessage( "- Cover (Kills while defending FC) Bonus :" @ CoverBonus @ "pts each. And" @ CoverBonus @ "more pts each if FC caps." );
       Sender.ClientMessage( "- Seal Bonus:" @ SealBonus @ "pts each, and" @ SealBonus @ "more pts each if FC caps." );
       Sender.ClientMessage( "- Seals (Kills while sealing off base) are defined by: 1) Your FC is on your team's side of map. 2) Your flag is not taken. 3) You kill someone on your side of the map." );
+      if(bExtraStats)
+        Sender.ClientMessage( "- DefKills (Kills while the enemy is in your base area) are defined by: 1) Your flag is not taken. 2) You kill someone on your side of the map." );
       Sender.ClientMessage( "- Flagkills:" @ 5 + FlagKillBonus @ "pts. Flag Returns in base are worth" @ DitchZeros( BaseReturnBonus ) @ "pts, in mid" @ DitchZeros( MidReturnBonus ) @ "pts, enemy base" @ DitchZeros( EnemyBaseReturnBonus ) @ "pts, VERY close to capping" @ DitchZeros( CloseSaveReturnBonus ) @ "pts." );
       Sender.ClientMessage( "- Additional features: See Readme!" );
     }
@@ -1039,7 +1062,7 @@ function Mutate( string MutateString, PlayerPawn Sender )
     }
     else
     {
-      Sender.ClientMessage( "SmartCTF by {PiN}Kev_HH. SmartCTF " $ Version $ " by {DnF2}SiNiSTeR." );
+      Sender.ClientMessage( "SmartCTF by {PiN}Kev_HH. SmartCTF 4C by {DnF2}SiNiSTeR. 4D by [es]Rush");
       Sender.ClientMessage( "- To toggle stats, bind a key or type in console: 'Mutate SmartCTF Stats'" );
       Sender.ClientMessage( "- Type 'Mutate CTFInfo' for SmartCTF settings." );
       Sender.ClientMessage( "- Type 'Mutate SmartCTF Rules' for new point system definition." );
@@ -1079,6 +1102,7 @@ function Mutate( string MutateString, PlayerPawn Sender )
     if( bShowLongRangeMsg ) CMsgsString = CMsgsString @ "LongRangeKill";
     if( CMsgsString == "" ) CMsgsString = "All off";
     if( Left( CMsgsString, 1 ) == " " ) CMsgsString = Mid( CMsgsString, 1 );
+    Sender.ClientMessage( "- bExtraStats:" @ bExtraStats);
     Sender.ClientMessage( "- Sounds:" @ SoundsString );
     Sender.ClientMessage( "- Msgs:" @ MsgsString );
     Sender.ClientMessage( "- Private Msgs:" @ CMsgsString );
@@ -1353,7 +1377,7 @@ function string DitchZeros( float nr )
 simulated event PostRender( Canvas C )
 {
   local int i, Y;
-  local float DummyY, Size;
+  local float DummyY, Size, Temp;
   local string TempStr;
 
   // Get stuff relating to PlayerOwner, if not gotten. Also spawn Font info.
@@ -1416,22 +1440,24 @@ simulated event PostRender( Canvas C )
     C.Style = ERenderStyle.STY_Translucent;
     if( DrawLogo > 1 )
     {
-      C.DrawColor.R = 255 - DrawLogo;
-      C.DrawColor.G = 255 - DrawLogo;
-      C.DrawColor.B = 255 - DrawLogo;
+      C.DrawColor.R = 255 - DrawLogo/2;
+      C.DrawColor.G = 255 - DrawLogo/2;
+      C.DrawColor.B = 255 - DrawLogo/2;
     }
     else // 1
     {
       C.Style = ERenderStyle.STY_Translucent;
       C.DrawColor = White;
     }
-    C.SetPos( C.ClipX - 128 - 16, 16 );
-    C.DrawIcon( texture'powered', 1 );
-
+    if(powered == None)
+    	powered=texture'powered';
+    C.SetPos( C.ClipX - powered.Usize - 16, 40 );
+    C.DrawIcon( powered, 1 );
     C.Font = MyFonts.GetBigFont( C.ClipX );
-    C.StrLen( LogoText , Size, DummyY );
-    C.SetPos( C.ClipX - Size - 16, 16 + 8 + 128 );
-    C.DrawText( LogoText );
+    C.StrLen( "SmartCTF "$Version , Size, DummyY );
+    C.SetPos( C.ClipX  - powered.Usize/2 - Size/2 - 16, 40 + 8 + powered.Vsize );
+    Temp = DummyY;
+    C.DrawText( "SmartCTF "$Version );
   }
 
   C.Style = ERenderStyle.STY_Normal;
@@ -1480,7 +1506,7 @@ simulated function Tick( float delta )
       if( !SCTFGame.bServerInfoSetServerSide && SCTFGame.DefaultHUDType != None ) // client side required
       {
         class<ChallengeHUD>( SCTFGame.DefaultHUDType ).default.ServerInfoClass = class'SmartCTFServerInfo';
-        Log( "Notified HUD (clientside," @ SCTFGame.DefaultHUDType.Name $ ") to use SmartCTF ServerInfo.", 'SmartCTF' );
+        Log( "Notified HUD (clientside," @ SCTFGame.DefaultHUDType.name $ ") to use SmartCTF ServerInfo.", 'SmartCTF' );
       }
     }
     if( !SCTFGame.bInitialized ) return;
@@ -1499,8 +1525,9 @@ simulated function Tick( float delta )
       if( PlayerOwner.GameReplicationInfo.GameEndedComments != "" && !bGameEnded )
       {
         bGameEnded = True;
-        //OwnerStats = SCTFGame.GetStatsByPRI( pPRI );
+        OwnerStats = SCTFGame.GetStatsByPRI( pPRI );
         //if( OwnerStats != None ) OwnerStats.ShowStats();
+        OwnerStats.bEndStats = True;
         PlayerOwner.ConsoleCommand( "mutate SmartCTF ForceStats" );
       }
     }
@@ -1524,7 +1551,7 @@ simulated function Timer()
     if( DrawLogo != 0 )
     {
       LogoCounter++;
-      if( DrawLogo == 255 )
+      if( DrawLogo == 510 )
       {
         DrawLogo = 0;
         if( Role != ROLE_Authority ) SetTimer( 0.0, False ); // client timer off
@@ -1533,7 +1560,7 @@ simulated function Timer()
       else if( LogoCounter > 60 )
       {
         DrawLogo += 8;
-        if( DrawLogo > 255 ) DrawLogo = 255;
+        if( DrawLogo > 510 ) DrawLogo = 510;
       }
       else if( LogoCounter == 60 )
       {
@@ -1586,14 +1613,14 @@ simulated function Timer()
 
 defaultproperties
 {
-     Version="4C"
+     Version="4D"
      GameTieMessage="The game ended in a tie!"
-     LogoText="SmartCTF 4C"
      RedTeamColor=(R=255)
      BlueTeamColor=(G=128,B=255)
      White=(R=255,G=255,B=255)
      Gray=(R=128,G=128,B=128)
      bEnabled=True
+     CountryFlagsPackage="CountryFlags2"
      CapBonus=8
      AssistBonus=7
      CoverBonus=2
