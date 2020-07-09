@@ -13,21 +13,19 @@ var string DroppedMessage;
 
 function Destroyed()
 {
-	local CTFFlag flag;
+  local CTFFlag flag;
 
-	// Use Other.Class==Class'ClassName' if you want a specific Actor type 
-	if( Owner != none && Owner.IsA('Pawn') ) {
-		if( Pawn( Owner ).bIsPlayer ) { // Pawn is a player
-			flag = CTFFlag( Pawn( Owner ).PlayerReplicationInfo.HasFlag );
+  if( Pawn( Owner ).bIsPlayer )
+  {
+    flag = CTFFlag( Pawn( Owner ).PlayerReplicationInfo.HasFlag );
+    if( flag != None )
+    {
+      flag.Drop( 0.5 * Pawn( Owner ).Velocity );
+      BroadcastMessage( Pawn( Owner ).PlayerReplicationInfo.PlayerName @ DroppedMessage );
+    }
+  }
 
-			if( flag != None ) { // Should handle casting failure
-				flag.Drop( 0.5 * Pawn( Owner ).Velocity );
-				BroadcastMessage( Pawn( Owner ).PlayerReplicationInfo.PlayerName @ DroppedMessage );
-			}
-		}
-	}
-
-	super.Destroyed(); // Call Destroyed() on super class TournamentPickup
+  super.Destroyed();
 }
 
 defaultproperties

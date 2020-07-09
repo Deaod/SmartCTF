@@ -1,16 +1,25 @@
 //=============================================================================
 // SmartCTFEnhancedMultiKillMessage.
 // - v1.0 29-Feb-2004 by {DnF2}SiNiSTeR -
+// SmartCTF Edited by SC]-[WARTZ_{HoF} May 2017
 //=============================================================================
 class SmartCTFEnhancedMultiKillMessage extends MultiKillMessage;
 
-// Extended Multikills adds 2 more to the list :]
-// These Announcer sounds already were included in the orginal game, just not used.
-// It also doesn't stop after 9 times ;p
+#exec AUDIO IMPORT FILE="Sounds\DoubleKill_F.wav" NAME="DoubleKill" GROUP="Sounds"
+#exec AUDIO IMPORT FILE="Sounds\MultiKill_F.wav" NAME="MultiKill" GROUP="Sounds"
+#exec AUDIO IMPORT FILE="Sounds\MegaKill_F.wav" NAME="MegaKill" GROUP="Sounds"
+#exec AUDIO IMPORT FILE="Sounds\UltraKill_F.wav" NAME="UltraKill" GROUP="Sounds"
+#exec AUDIO IMPORT FILE="Sounds\MonsterKill_F.wav" NAME="MonsterKill" GROUP="Sounds"
+#exec AUDIO IMPORT FILE="Sounds\LudicrousKill_F.wav" NAME="LudicrousKill" GROUP="Sounds"
+#exec AUDIO IMPORT FILE="Sounds\HolyShitKill_F.wav" NAME="HolyShitKill" GROUP="Sounds"
 
-#exec OBJ LOAD FILE=..\Sounds\Announcer.uax
-
+var(Messages) localized string DoubleKillString;
+var(Messages) localized string MultiKillString;
 var(Messages) localized string MegaKillString;
+var(Messages) localized string UltraKillString;
+var(Messages) localized string MonsterKillString;
+var(Messages) localized string LudicrousKillString;
+var(Messages) localized string HolyShitKillString;
 
 static function int GetFontSize( int Switch )
 {
@@ -26,22 +35,24 @@ static function string GetString( optional int Switch, optional PlayerReplicatio
        break;
     case 1:  return default.DoubleKillString;
        break;
-    case 2:  return default.TripleKillString;
+    case 2:  return default.MultiKillString;
        break;
-    case 3:  return default.MultiKillString;
+    case 3:  return default.MegaKillString;
        break;
-    case 4:  return default.MegaKillString;
+    case 4:  return default.UltraKillString;
        break;
-    case 5:  return default.UltraKillString;
+    case 5:  return default.MonsterKillString;
+      break;
+    case 6:  return default.LudicrousKillString;
        break;
-    default: return default.MonsterKillString;
+    default:  return default.HolyShitKillString;
        break;
   }
 }
 
 static function string GetBroadcastString( int MultiLevel )
 {
-  if( MultiLevel == 5 ) return "had an" @ static.GetString( MultiLevel );
+  if( MultiLevel == 8 ) return "had an" @ static.GetString( MultiLevel );
   else return "had a" @ static.GetString( MultiLevel );
 }
 
@@ -52,17 +63,19 @@ static simulated function ClientReceive( PlayerPawn P, optional int Switch, opti
   switch( Switch )
   {
     case 0:  break;
-    case 1:  P.ClientPlaySound( sound'Announcer.DoubleKill', , true );
+    case 1:  P.ClientPlaySound( sound'SmartCTF_4F_002.Sounds.DoubleKill', , true );
        break;
-    case 2:  P.ClientPlaySound( sound'Announcer.TripleKill', , true );
+    case 2:  P.ClientPlaySound( sound'SmartCTF_4F_002.Sounds.MultiKill', , true );
        break;
-    case 3:  P.ClientPlaySound( sound'Announcer.MultiKill', , true );
+    case 3:  P.ClientPlaySound( sound'SmartCTF_4F_002.Sounds.MegaKill', , true );
        break;
-    case 4:  P.ClientPlaySound( sound'Announcer.MegaKill', , true );
+    case 4:  P.ClientPlaySound( sound'SmartCTF_4F_002.Sounds.UltraKill', , true );
        break;
-    case 5:  P.ClientPlaySound( sound'Announcer.UltraKill', , true );
+    case 5:  P.ClientPlaySound( sound'SmartCTF_4F_002.Sounds.MonsterKill', , true );
        break;
-    default: P.ClientPlaySound( sound'Announcer.MonsterKill', , true );
+    case 6:  P.ClientPlaySound( sound'SmartCTF_4F_002.Sounds.LudicrousKill', , true );
+       break;
+    default: P.ClientPlaySound( sound'SmartCTF_4F_002.Sounds.HolyShitKill', , true );
        break;
   }
 }
@@ -90,5 +103,11 @@ static function color GetColor( optional int Switch, optional PlayerReplicationI
 
 defaultproperties
 {
-     MegaKillString="MEGA KILL!"
+     DoubleKillString="Double Kill!"
+     MultiKillString="Multi Kill!"
+     MegaKillString="Mega Kill!"
+     UltraKillString="ULTRA KILL!!"
+     MonsterKillString="M O N S T E R   K I L L !!"
+     LudicrousKillString="L U D I C R O U S   K I L L  !!!"
+     HolyShitKillString="H O L Y   S H I T !!!"
 }

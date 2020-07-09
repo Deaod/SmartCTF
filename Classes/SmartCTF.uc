@@ -3,7 +3,8 @@
 // SmartCTF 4B/4C Uber Massively tweaked by {DnF2}SiNiSTeR. Released March 2005.
 // SmartCTF 4D with IpToCountry by [es]Rush. Released January 2006.
 // SmartCTF 4D++ by adminthis. Released October 2008.
-// SmartCTF 4F by nutzac. Released August 2015.
+// SmartCTF 4F_002 by SC]-[WARTZ_{HoF}. May 2017.
+//
 //
 // This mod changes the point system and adds features to ultimately promote Teamwork in CTF.
 // This is a CTF Mod only. It will not load in any other gametype.
@@ -17,12 +18,12 @@
 //
 //
 // CHANGELOG: See Readme
-
+// 
 class SmartCTF expands Mutator config( SmartCTF_4F );
 
 #exec texture IMPORT NAME=meter FILE=Textures\meter.pcx GROUP=SmartCTF MIPS=OFF
-#exec texture IMPORT NAME=shade File=Textures\shade.pcx GROUP=SmartCTF MIPS=OFF
 #exec texture IMPORT NAME=powered File=Textures\powered.pcx GROUP=SmartCTF MIPS=OFF
+#exec AUDIO IMPORT FILE="Sounds\cd30sec.wav" NAME="cd30sec" GROUP="Sounds"
 
 /* Server Vars */
 var SmartCTFGameReplicationInfo SCTFGame;
@@ -37,30 +38,6 @@ var float RedAssistTimes[32], BlueAssistTimes[32], PickupTime[2];
 var FlagBase FlagStands[2];
 var bool bForcedEndGame, bTournamentGameStarted, bTooCloseForSaves, bStartTimeCorrected;
 var int MsgPID;
-var	string	GoneName[32];		//list of disconnected players
-var	string	GoneIP[32];			//corresponding IP addy
-var	float	GoneScore[32];		//corresponding scores
-var	float	GoneDeaths[32];		//corresponding deaths
-var SmartCTFPlayerReplicationInfo GoneStats[32];//corresponding smartCTF stats
-var	string	StoreName[32];		//list of stored playernames
-var	float	StoreScore[32];		//corresponding scores
-var	float	StoreDeaths[32];	//corresponding deaths
-var	string	StoreIP[32];		//corresponding IP addy
-var SmartCTFPlayerReplicationInfo StoreStats[32];//corresponding stored smartCTF stats
-// First backup array
-var	string	B1Name[32];		//list of stored playernames
-var	float	B1Score[32];	//corresponding scores
-var	float	B1Deaths[32];	//corresponding deaths
-var	string	B1IP[32];		//corresponding IP addy
-var SmartCTFPlayerReplicationInfo B1Stats[32];//corresponding stored smartCTF stats
-// Second backup array
-var	string	B2Name[32];		//list of stored playernames
-var	float	B2Score[32];	//corresponding scores
-var	float	B2Deaths[32];	//corresponding deaths
-var	string	B2IP[32];		//corresponding IP addy
-var SmartCTFPlayerReplicationInfo B2Stats[32];//corresponding stored smartCTF stats
-var	string	QuitMsg;		//the broadcast message when someone leaves the game
-var	int		QuitMsgLen;		//length of QuitMsg
 
 /* Client Vars */
 var bool bClientJoinPlayer, bGameEnded, bInitSb;
@@ -98,7 +75,6 @@ var() config bool bDoKeybind;
 var() config bool bExtraMsg;
 var() config float SbDelay;
 var() config float MsgDelay;
-var() config bool  bStoreStats;
 var(SmartCTFMessages) config byte CoverMsgType;
 var(SmartCTFMessages) config byte CoverSpreeMsgType;
 var(SmartCTFMessages) config byte SealMsgType;
@@ -192,10 +168,7 @@ function PostBeginPlay()
 
   SaveConfig(); // Create the .ini if its not already there.
 
-  //Register as a message mutator, as we'll be using message monitoring
-  //to perform some of our code. If not registered, then many message
-  //events will not be passed to our mutator.
-    Level.Game.RegisterMessageMutator( self );
+  Level.Game.RegisterMessageMutator( self );
 
   // Since we have problem replicating config variables...
   SCTFGame.bShowFCLocation = bShowFCLocation;
@@ -225,17 +198,6 @@ function PostBeginPlay()
   
   MsgPID=-1; // First PID is 0, so it wouldn't get messaged if we kept MsgPID at it's default value.
 
-  if(bStoreStats == True)
-  {
-  //Register as a damage mutator, as we'll be using damage checks to
-  //update the stored information (new in v3.2).
-	Level.Game.RegisterDamageMutator(self);
-  
-  //Grab some basic info about the player left message.
-  QuitMsg=Level.Game.LeftMessage;
-  QuitMsgLen=Len(QuitMsg);
-  
-  }
   Log( "SmartCTF" @ Version @ "loaded successfully.", 'SmartCTF' );
 }
 
@@ -277,74 +239,16 @@ function ModifyPlayer( Pawn Other )
 {
   local Inventory Inv;
   local SmartCTFPlayerReplicationInfo OtherStats;
-  local	string	IP;
-  local int j,i;
 
   if( bFixFlagBug && Other.bIsPlayer && !( Other.PlayerReplicationInfo.bIsSpectator && !Other.PlayerReplicationInfo.bWaitingPlayer ) )
   {
     Inv = Spawn( class'SmartCTFFlagCheckerInventory' , Other );
-	
-    if( Inv != None ) 
-	{
-		Inv.GiveTo( Other );
-	}
+    if( Inv != None ) Inv.GiveTo( Other );
   }
 
-   SCTFGame.RefreshPRI();
-   OtherStats = SCTFGame.GetStats( Other );
-   
-    if(OtherStats!=none && bStoreStats && !Level.Game.bGameEnded && Other!=none && Other.bIsPlayer&& !Other.IsA('Spectator') && !Other.IsA('Bot')	&& Other.PlayerReplicationInfo!=none&& Other.PlayerReplicationInfo.PlayerName!="Player" )
-	{
-		IP=PlayerPawn(Other).GetPlayerNetworkAddress();
-		j=InStr(IP,":");
-		if( j!=-1 )
-		{
-			IP=Left(IP,j);
-		}
-		for(i=0; i<32 && GoneName[i]!=""; i++) // zac wuz here -for each each slot in GoneName that is not none, go up one but stay below 32
-		{
-			if( Other.PlayerReplicationInfo.PlayerName~=GoneName[i] || (IP==GoneIP[i] && IP!="") )
-			{
-				Log("  ## SmartCTF - Caught player by name or IP "$Other.PlayerReplicationInfo.PlayerName$"@"$IP);
-				Log("  ## SmartCTF is restoring stats for " $Other.PlayerReplicationInfo.PlayerName$"@"$IP);
-				
-				if(GoneStats[i]!= none)
-				{
-					FirstSpawn( Other );
-					OtherStats.Captures=GoneStats[i].Captures;
-					OtherStats.Frags=GoneStats[i].Frags;
-					OtherStats.Grabs=GoneStats[i].Grabs;
-					OtherStats.Covers=GoneStats[i].Covers;
-					OtherStats.Assists=GoneStats[i].Assists;
-					OtherStats.Seals=GoneStats[i].Seals;
-					OtherStats.Saves=GoneStats[i].Saves;
-					OtherStats.FlagKills=GoneStats[i].FlagKills;
-					OtherStats.DefKills=GoneStats[i].DefKills;
-					OtherStats.HeadShots=GoneStats[i].HeadShots;
-					OtherStats.ShieldBelts=GoneStats[i].ShieldBelts;
-					OtherStats.Amps=GoneStats[i].Amps;
-					OtherStats.Kegs=GoneStats[i].Kegs;					// zac wuz here - gonestats is an instace of the OtherStats class, the PRI. this handles reconnects and matching the player's stats with the server's 
-					
-					OtherStats.LastKillTime=GoneStats[i].LastKillTime;
-					OtherStats.MultiLevel=GoneStats[i].MultiLevel;
-					OtherStats.FragSpree=GoneStats[i].FragSpree;
-					OtherStats.CoverSpree=GoneStats[i].CoverSpree;
-					OtherStats.SealSpree=GoneStats[i].SealSpree;
-					OtherStats.SpawnKillSpree=GoneStats[i].SpawnKillSpree;
-					OtherStats.bHadFirstSpawn =True;
-					Other.PlayerReplicationInfo.Score=GoneScore[i];
-					Other.PlayerReplicationInfo.Deaths=GoneDeaths[i];
-					OtherStats.bHadFirstSpawn=False;
-					CleanGone(i);
-					Log("  ## Stats are restored");
-				}
-				break;
-			}
-		}
-	}
-   
-     
-  //If(OtherStats == none) return;                               proves fatal for StoreStats
+  OtherStats = SCTFGame.GetStats( Other );
+  if( OtherStats == None ) return;
+
   if( !OtherStats.bHadFirstSpawn )
   {
     OtherStats.bHadFirstSpawn = True;
@@ -354,8 +258,6 @@ function ModifyPlayer( Pawn Other )
   OtherStats.SpawnTime = Level.TimeSeconds;
 
   super.ModifyPlayer( Other );
-  if(bStoreStats)	UpdateInfo();	
-  
 }
 
 /*
@@ -390,221 +292,6 @@ function FirstSpawn( Pawn Other )
     }
   }
 }
-
-/*
-*Use this function to clean out entries from the gone arrays when a player
-*reenters and is caught by SmartCTF
-*/
-function CleanGone( int R)
-{
- 
- local	int		i;
-
-	for(i=R;i<32;i++)
-	{	If(GoneStats[i]!=none)
-		{
-			
-			if(i==31)
-			{
-			GoneName[i]="";
-			GoneScore[i]=0;
-			GoneDeaths[i]=0;
-			GoneIP[i]="";
-			GoneStats[i].ClearStats();
-			break;
-			}
-
-		GoneName[i]=GoneName[i+1];
-		GoneScore[i]=GoneScore[i+1];
-		GoneDeaths[i]=GoneDeaths[i+1];
-		GoneIP[i]=GoneIP[i+1];
-		GoneStats[i]=GoneStats[i+1];	
-		}
-	}
-	
-
-}
-
-function bool MutatorBroadcastMessage( Actor Sender, Pawn Receiver, out coerce string Msg, optional bool bBeep, out optional name Type )
-{
-	local	string	quitter;
-	local	int		i,j;
-	local	bool	matched;
-
-	if(bStoreStats)
-	{
-		//Thanks to the WebChatLog mutator for the Reciever.NextPawn==none check
-		if(Receiver != none && Receiver.NextPawn == none && !Level.Game.bGameEnded)  // prevent duplicate messages
-		{
-			if(Right(Msg,QuitMsgLen)==QuitMsg)
-			{
-				quitter=left(Msg,Len(Msg)-QuitMsgLen);	//strips out the playername
-
-				for(i=0; i<32 && StoreName[i]!=""; i++)
-				{
-					if(StoreName[i]~=quitter)
-					{
-						matched=true;	//found our player match
-
-						for(j=0; j<32; j++)
-						{
-							if(GoneName[j]=="")
-							{
-								GoneName[j]=StoreName[i];
-								GoneScore[j]=StoreScore[i];
-								GoneDeaths[j]=StoreDeaths[i];
-								GoneIP[j]=StoreIP[i];
-								GoneStats[j]=StoreStats[i];
-								break;
-							}
-
-							if(j==31)
-							{
-								log("  ## SmartCtf - Gone Array is full");
-								break;
-							}
-						}
-
-						break;
-					}
-				}
-
-				//if the  player wasn't caught in the main store array, check backup 1
-				if(!matched)
-				{
-					for(i=0; i<32 && B1Name[i]!=""; i++)
-					{
-						if(B1Name[i]~=quitter)
-						{
-							matched=true;	//found our player match
-
-							for(j=0; j<32; j++)
-							{
-								if(GoneName[j]=="")
-								{
-									GoneName[j]=B1Name[i];
-									GoneScore[j]=B1Score[i];
-									GoneDeaths[j]=B1Deaths[i];
-									GoneIP[j]=B1IP[i];
-									GoneStats[j]=B1Stats[i];
-									break;
-								}
-
-								if(j==31)
-								{
-									log("  ## SmartCtf - Gone Array is full");
-									break;
-								}
-							}
-
-							break;
-						}
-					}
-				}
-
-				//if the  player wasn't caught in the backup 1 array, check backup 2
-				if(!matched)
-				{
-					for(i=0; i<32 && B2Name[i]!=""; i++)
-					{
-						if(B2Name[i]~=quitter)
-						{
-							for(j=0; j<32; j++)
-							{
-								if(GoneName[j]=="")
-								{
-									GoneName[j]=B2Name[i];
-									GoneScore[j]=B2Score[i];
-									GoneDeaths[j]=B2Deaths[i];
-									GoneIP[j]=B2IP[i];
-									GoneStats[j]=B2Stats[i];
-									break;
-								}
-
-								if(j==31)
-								{
-									log("  ## SmartCtf - Gone Array is full");
-									break;
-								}
-							}
-
-							break;
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if( NextMessageMutator != none )
-	{
-		//If there are other mutators monitoring messages, make sure we ask them
-		//whether to allow the message to be broadcast (i.e. return their value).
-		return NextMessageMutator.MutatorBroadcastMessage( Sender, Receiver, Msg, bBeep, Type );
-	}
-
-	//Else, we'll return true (true will allow the message to be broadcast).
-	return true;
-} 
-
-/*
-*Just another event to use as an update point for our store array (the more
-*update events, the more up to date the store array will be).
-*/
-function ScoreKill(pawn Killer, pawn Other)
-{
-	super.ScoreKill(Killer, Other);
-
-	if(bStoreStats)	UpdateInfo();
-	
-}
-
-/*
-*Just another event to use as an update point for our store array (the more
-*update events, the more up to date the store array will be).
-*/
-function MutatorTakeDamage( out int ActualDamage, Pawn Victim, Pawn InstigatedBy, out Vector HitLocation, out Vector Momentum, name DamageType)
-{
-	super.MutatorTakeDamage(ActualDamage,Victim,InstigatedBy,HitLocation,Momentum,DamageType);
-	if(bStoreStats)	UpdateInfo();
-	
-}
-
-
-function UpdateInfo()
-{
-	local	int		i,j,k;
-	local	string	IP;
-	local	Pawn	P;
-
-	//clear the previous name values, so we don't double register any players
-	for(k=0; k<32; k++)
-	{
-		StoreName[k]="";
-	}
-
-	for(P=Level.PawnList; P!=none; P=P.nextPawn)
-	{
-		if( PlayerPawn(P)!=none && P.bIsPlayer && !P.IsA('Spectator') && !P.IsA('Bot')&& P.PlayerReplicationInfo!=none && P.PlayerReplicationInfo.PlayerName!="Player"&& (P.PlayerReplicationInfo.Score!=0 || P.PlayerReplicationInfo.Deaths!=0) )
-		{
-			IP=PlayerPawn(P).GetPlayerNetworkAddress();
-			if( IP!="" )
-			{
-				j=InStr(IP,":");
-				if( j!=-1 )
-					IP=Left(IP,j);
-			}
-			StoreName[i]=P.PlayerReplicationInfo.PlayerName;
-			StoreScore[i]=P.PlayerReplicationInfo.Score;
-			StoreDeaths[i]=P.PlayerReplicationInfo.Deaths;
-			StoreIP[i]=IP;
-			if (SCTFGame.GetStats( P ) != none)
-			StoreStats[i] = SCTFGame.GetStats( P );
-			i++;
-		}
-	}
-
-} 
 
 /*
  * Gets called once when the Countdown before a Tournament game starts.
@@ -855,15 +542,14 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
       }
     }
   }
-  if(bStoreStats)UpdateInfo();
+
   return bPrevent;
 }
 
 /*
  * ShieldBelt + Damage Amp tracking, spawnkill detection.
  */
- // zac wuz here, fixing smartctf to have keg and flag saves count Aug 21, 2015
-function bool HandlePickupQuery( Pawn Other, Inventory Item, out byte bAllowPickup ) // zac - when the player picks up a pickup item, this checks it and adds it to numbers aka, the PRI
+function bool HandlePickupQuery( Pawn Other, Inventory Item, out byte bAllowPickup )
 {
   local SmartCTFPlayerReplicationInfo OtherStats;
 
@@ -871,14 +557,11 @@ function bool HandlePickupQuery( Pawn Other, Inventory Item, out byte bAllowPick
 
   if( Item.IsA( 'UT_ShieldBelt' ) && OtherStats != None ) OtherStats.ShieldBelts++;
   if( Item.IsA( 'UDamage' ) && OtherStats != None ) OtherStats.Amps++;
-  if( Item.IsA( 'HealthPack' ) && OtherStats != None) OtherStats.Kegs++; // zac - Healthpack is to not be confused with the 20+ packs, those are medboxes
-  if( Item.IsA( 'Armor2' ) && OtherStats != None) OtherStats.Armors++;
-  if( Item.IsA( 'UT_Jumpboots' ) && OtherStats != None) OtherStats.Boots++;
-  
+
   // For spawnkill detection
   if( bSpawnkillDetection && OtherStats != None && OtherStats.SpawnTime != 0 )
   {
-    if( Item.IsA( 'TournamentWeapon' ) || Item.IsA('Armor2') || Item.IsA('UT_Jumpboots') || Item.IsA('HealthPack') || Item.IsA( 'UT_ShieldBelt' ) || Item.IsA( 'UDamage' ) || Item.IsA( 'HealthPack' ) || Item.IsA( 'UT_Invisibility' ) )
+    if( Item.IsA( 'TournamentWeapon' ) || Item.IsA( 'UT_ShieldBelt' ) || Item.IsA( 'UDamage' ) || Item.IsA( 'HealthPack' ) || Item.IsA( 'UT_Invisibility' ) )
     {
       // This player has picked up a certain item making a kill on him no longer be qualified as a spawnkill.
       OtherStats.SpawnTime = 0;
@@ -1104,10 +787,6 @@ function bool MutatorBroadcastLocalizedMessage( Actor Sender, Pawn Receiver, out
   local byte i, LeadSound;
   local Pawn pn, FirstPawn;
   local SmartCTFPlayerReplicationInfo ReceiverStats;
-  
-  local SmartCTFPlayerReplicationInfo OtherStats;
-
-  OtherStats = SCTFGame.GetStats( Receiver );
 
   // This function gets called each time someone receives a message. Thus for a broadcast, we need to make sure code only
   // gets executed once. We can do that by comparing Receiver with f.e. the FC if applicable, or with the first Pawn
@@ -1229,14 +908,8 @@ function bool MutatorBroadcastLocalizedMessage( Actor Sender, Pawn Receiver, out
           {
             // 8 pts for a close save (with msg), Half a pt for base returns, 2 pts for Mid, 4 pts for enemy base
             if( !bTooCloseForSaves && VSize( Flag.Location - FlagStands[1 - Flag.Team].Location ) < 900 )
-            { // CLOSE SAVE zac wuz here - adding in that the stats are the SCtfgame stats and increasing the palyer's saves
-			  // saves are to be on scoreboard. the saves are incremented here 
+            { // CLOSE SAVE
               RelatedPRI_1.Score += CloseSaveReturnBonus;
-			  Receiver = Pawn( RelatedPRI_1.Owner );	
-			  ReceiverStats = SCTFGame.GetStats( Receiver );
-			  
-			  ReceiverStats.Saves++;
-			  
               if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "flag_return_closesave", RelatedPRI_1.PlayerID, Flag.Team );
 
               // Only a msg if not a Flag standoff - other flag is home
@@ -1245,12 +918,7 @@ function bool MutatorBroadcastLocalizedMessage( Actor Sender, Pawn Receiver, out
                 if( SavedMsgType == 1 && PlayerPawn( RelatedPRI_1.Owner ) != None ) PlayerPawn( RelatedPRI_1.Owner ).ClientMessage( class'SmartCTFMessage'.static.GetString( 7 + 64, RelatedPRI_1 ) );
                 else if( SavedMsgType == 2 ) BroadcastMessage( class'SmartCTFMessage'.static.GetString( 7, RelatedPRI_1 ) );
                 else if( SavedMsgType == 3 ) BroadcastLocalizedMessage( class'SmartCTFMessage', 7, RelatedPRI_1 );
-                if( bPlaySavedSound && PlayerPawn( RelatedPRI_1.Owner ) != None )
-				{
-				PlayerPawn( RelatedPRI_1.Owner ).ReceiveLocalizedMessage( class'SmartCTFAudioMsg', 2 );			
-				}
-				
-				
+                if( bPlaySavedSound && PlayerPawn( RelatedPRI_1.Owner ) != None ) PlayerPawn( RelatedPRI_1.Owner ).ReceiveLocalizedMessage( class'SmartCTFAudioMsg', 2 );
               }
             }
             else if( IsInZone( RelatedPRI_1, 1 - Flag.Team ) )
@@ -1277,9 +945,8 @@ function bool MutatorBroadcastLocalizedMessage( Actor Sender, Pawn Receiver, out
 
         break;
     } // end switch
-  if(bStoreStats)	UpdateInfo();
   } // end if msg is CTF msg.
-   
+
   return super.MutatorBroadcastLocalizedMessage( Sender, Receiver, Message, Switch, RelatedPRI_1, RelatedPRI_2, OptionalObject );
 }
 
@@ -1317,7 +984,6 @@ function GiveCoverSealBonus( int Team )
       }
     }
   }
-  if(bStoreStats)UpdateInfo();
 }
 
 /*
@@ -1414,7 +1080,7 @@ function Mutate( string MutateString, PlayerPawn Sender )
     }
     else
     {
-      Sender.ClientMessage( "SmartCTF by {PiN}Kev_HH. 4C by {DnF2}SiNiSTeR. 4D by [es]Rush. 4Fv1 by nutzac. We run 4Fv1");
+      Sender.ClientMessage( "SmartCTF by {PiN}Kev_HH. 4C by {DnF2}SiNiSTeR. 4D by [es]Rush. We run 4F!");
       Sender.ClientMessage( "- To toggle stats, bind a key or type in console: 'Mutate SmartCTF Stats'" );
       Sender.ClientMessage( "- Type 'Mutate CTFInfo' for SmartCTF settings." );
       Sender.ClientMessage( "- Type 'Mutate SmartCTF Rules' for new point system definition." );
@@ -1545,7 +1211,7 @@ function bool HandleEndGame()
     CalcSmartCTFEndStats();
     //ShowEndGameStats();
   }
-   if(bStoreStats)	UpdateInfo();
+
   if( NextMutator != None ) return NextMutator.HandleEndGame();
   return False;
 }
@@ -1803,16 +1469,14 @@ simulated event PostRender( Canvas C )
     }
     if(powered == None)
     	powered=texture'powered';
-	//C.SetPos( C.ClipX - powered.Usize - 16, 40 );
-    C.SetPos( C.ClipX / 2 - powered.usize / 2, C.ClipY / 2 - powered.vsize / 2);
+    C.SetPos( C.ClipX - powered.Usize - 16, 40 );
     C.DrawIcon( powered, 1 );
     C.Font = MyFonts.GetSmallFont( C.ClipX );
-	C.Font = Font(DynamicLoadObject("LadderFonts.UTLadder14", class'Font'));
+	//C.Font = Font(DynamicLoadObject("LadderFonts.UTLadder14", class'Font'));
     C.StrLen( "SmartCTF "$Version , Size, DummyY );
-	//C.SetPos( C.ClipX  - powered.Usize/2 - Size/2 - 16, 40 + 8 + powered.Vsize );
-	C.SetPos( C.ClipX /2 - 248 ,C.ClipY /2 + 64 );
+    C.SetPos( C.ClipX  - powered.Usize/2 - Size/2 - 16, 40 + 8 + powered.Vsize );
     Temp = DummyY;
-    C.DrawText( "SmartCTF_"$Version$" by {PiN}Kev | {DnF2}SiNiSTeR | [es]Rush | adminthis | nutzac " );
+    C.DrawText( "SmartCTF "$Version );
   }
 
   C.Style = ERenderStyle.STY_Normal;
@@ -1834,7 +1498,7 @@ simulated function ClientJoinServer( Pawn Other )
   SetTimer( 0.05 , True);
 	  
   // Since this gets called in the HUD it needs to be changed clientside.
-  if( SCTFGame.bPlay30SecSound ) class'TimeMessage'.default.TimeSound[5] = sound'Announcer.CD30Sec';
+  if( SCTFGame.bPlay30SecSound ) class'TimeMessage'.default.TimeSound[5] = sound'SmartCTF_4F_002.Sounds.CD30Sec';
 }
 
 /*
@@ -1893,11 +1557,7 @@ simulated function Timer()
   local bool bReady;
   local Pawn pn;
   local SmartCTFPlayerReplicationInfo SenderStats;
-  local	int		i,j,k;
-  local	string	IP;
-  local	Pawn	P;
-  
-  
+
   super.Timer();
 
   // Clients - 0.05 second timer. Stops after logo is displayed.
@@ -2005,67 +1665,29 @@ simulated function Timer()
 	MsgPID = pn.PlayerReplicationInfo.PlayerID; // Increase to keep track of whom still to message
 	}
   }
-  
-    //Shuffle backup 1 val's into the backup 2 array and clear the backup 1 array.
-	//It's enough to clear just the names, as that is what is checked in the for
-	//loops above.
-	for(k=0; k<32; k++)
-	{
-		B2Name[k]=B1Name[k];
-		B2Score[k]=B1Score[k];
-		B2Deaths[k]=B1Deaths[k];
-		B2IP[k]=B1IP[k];
-		B2Stats[k]=B1Stats[k];
-
-		B1Name[k]="";
-	}
-	
-	for(P=Level.PawnList ; P!=none; P=P.nextPawn)
-	{
-		if( PlayerPawn(P)!=none && P.bIsPlayer && !P.IsA('Spectator') && !P.IsA('Bot')&& P.PlayerReplicationInfo!=none && P.PlayerReplicationInfo.PlayerName!="Player"&& (P.PlayerReplicationInfo.Score!=0 || P.PlayerReplicationInfo.Deaths!=0) )
-		{
-			IP=PlayerPawn(P).GetPlayerNetworkAddress();
-			if( IP!="" )
-			{
-				j=InStr(IP,":");
-				if( j!=-1 )
-					IP=Left(IP,j);
-			}
-			B1Name[i]=P.PlayerReplicationInfo.PlayerName;
-			B1Score[i]=P.PlayerReplicationInfo.Score;
-			B1Deaths[i]=P.PlayerReplicationInfo.Deaths;
-			if(SCTFGame.GetStats( P ) != none)
-			B1Stats[i]=SCTFGame.GetStats( P );
-			B1IP[i]=IP;
-			i++;
-		}
-	}
-  
 }
 
 defaultproperties
 {
-     Version="4Fv1"
+     Version="4F_002"
      GameTieMessage="The game ended in a tie!"
      RedTeamColor=(R=255)
      BlueTeamColor=(G=128,B=255)
      White=(R=255,G=255,B=255)
      Gray=(R=128,G=128,B=128)
      bEnabled=True
-     bExtraStats=True
      CountryFlagsPackage="CountryFlags2"
-     CapBonus=15
+     CapBonus=8
      AssistBonus=7
-     FlagKillBonus=3
      CoverBonus=2
-     SealBonus=3
+     SealBonus=2
      BaseReturnBonus=0.500000
      MidReturnBonus=2.000000
-     EnemyBaseReturnBonus=5.000000
-     CloseSaveReturnBonus=10.000000
+     EnemyBaseReturnBonus=4.000000
+     CloseSaveReturnBonus=8.000000
+     SpawnKillPenalty=1
      MinimalCapBonus=5
      bFixFlagBug=True
-     bEnhancedMultiKill=True
      EnhancedMultiKillBroadcast=3
      bShowFCLocation=True
      bSmartCTFServerInfo=True
@@ -2080,22 +1702,20 @@ defaultproperties
      bShowSpecs=True
      bDoKeybind=True
      bExtraMsg=True
-     SbDelay=5.500000
-     MsgDelay=7.000000
-     bStoreStats=True
-     CoverMsgType=2
-     CoverSpreeMsgType=3
-     SealMsgType=3
+     SbDelay=0.500000
+     MsgDelay=3.000000
+     CoverSpreeMsgType=1
+     SealMsgType=1
      SavedMsgType=3
      bShowSpawnKillerGlobalMsg=True
      bShowAssistConsoleMsg=True
      bShowSealRewardConsoleMsg=True
      bShowCoverRewardConsoleMsg=True
-     bPlayCaptureSound=True
      bPlayAssistSound=True
      bPlaySavedSound=True
      bPlayLeadSound=True
      bPlay30SecSound=True
      bOverTime=True
      bAlwaysRelevant=True
+     RemoteRole=ROLE_SimulatedProxy
 }
