@@ -1,0 +1,1621 @@
+// SmartCTF 4 by {PiN}Kev. Released January 2004.
+// SmartCTF 4A Tweaked by {DnF2}SiNiSTeR. Released December 2004.
+// SmartCTF 4B Uber Massively tweaked by {DnF2}SiNiSTeR. Released March 2005.
+//
+// This mod changes the point system and adds features to ultimately promote Teamwork in CTF.
+// This is a CTF Mod only. It will not load in any other gametype.
+//
+// Contact Info: Private Message me, {PiN}Hai-Ping, on http://forums.prounreal.com
+//               {DnF2}SiNiSTeR @ #DutchNet [QuakeNet IRC]
+//
+// CHANGELOG: See Readme
+
+class SmartCTF expands Mutator config( SmartCTF_4B );
+
+#exec texture IMPORT NAME=meter FILE=Textures\meter.pcx GROUP=SmartCTF
+#exec texture IMPORT NAME=powered File=Textures\powered.pcx GROUP=SmartCTF
+#exec texture IMPORT NAME=shade File=Textures\shade.pcx GROUP=SmartCTF
+
+/* Server Vars */
+var SmartCTFGameReplicationInfo SCTFGame;
+var byte RedAstIndex, BlueAstIndex;
+var byte TRCount;
+var string Version, GameTieMessage;
+var Pawn FCs[2], RedAssisters[32], BlueAssisters[32];
+var Pawn RedFlagCarrier[32], BlueFlagCarrier[32];
+var float RedFlagCarrierTime[32], BlueFlagCarrierTime[32];
+var byte RedFCIndex, BlueFCIndex;
+var float RedAssistTimes[32], BlueAssistTimes[32], PickupTime[2]; // FlagCarriedTime[2]
+var FlagBase FlagStands[2];
+var bool bForcedEndGame, bTournamentGameStarted;
+
+/* Client Vars */
+var bool bClientJoinPlayer, bGameEnded;
+var int LogoCounter, DrawLogo;
+var string LogoText;
+var PlayerPawn PlayerOwner;
+var FontInfo MyFonts;
+var TournamentGameReplicationInfo pTGRI;
+var PlayerReplicationInfo pPRI;
+var ChallengeHUD MyHUD;
+var Color RedTeamColor, BlueTeamColor, White, Gray;
+
+/* Server Vars Configurable */
+var() config bool bEnabled;
+var(SmartCTFBonuses) config int CapBonus, AssistBonus, FlagKillBonus, CoverBonus, SealBonus, GrabBonus;
+var(SmartCTFBonuses) config float BaseReturnBonus, MidReturnBonus, EnemyBaseReturnBonus, CloseSaveReturnBonus;
+var(SmartCTFBonuses) config int SpawnKillPenalty;
+var() config bool bFixFlagBug;
+var() config bool bEnhancedMultiKill;
+var() config byte EnhancedMultiKillBroadcast;
+var() config bool bShowFCLocation;
+var() config bool bSmartCTFServerInfo;
+var() config bool bNewCapAssistScoring;
+var() config bool bSpawnkillDetection;
+var() config bool bAfterGodLikeMsg;
+var() config bool bStatsDrawFaces;
+var() config bool bDrawLogo;
+var(SmartCTFMessages) config byte CoverMsgType;
+var(SmartCTFMessages) config byte CoverSpreeMsgType;
+var(SmartCTFMessages) config byte SealMsgType;
+var(SmartCTFMessages) config byte SavedMsgType;
+var(SmartCTFMessages) config bool bShowLongRangeMsg;
+var(SmartCTFMessages) config bool bShowSpawnKillerGlobalMsg;
+var(SmartCTFMessages) config bool bShowAssistConsoleMsg;
+var(SmartCTFMessages) config bool bShowSealRewardConsoleMsg;
+var(SmartCTFMessages) config bool bShowCoverRewardConsoleMsg;
+var(SmartCTFSounds) config bool bPlayCaptureSound;
+var(SmartCTFSounds) config bool bPlayAssistSound;
+var(SmartCTFSounds) config bool bPlaySavedSound;
+var(SmartCTFSounds) config bool bPlayLeadSound;
+var(SmartCTFSounds) config bool bPlay30SecSound;
+var(OvertimeControl) config bool bEnableOvertimeControl;
+var(OvertimeControl) config bool bOvertime;
+var(OvertimeControl) config bool bRememberOvertimeSetting;
+
+
+/*
+ * Check if we should spawn a SmartCTF instance.
+ * This check doesn't seem to work properly in PostBeginPlay, hence here.
+ */
+event Spawned()
+{
+  super.Spawned();
+
+  SCTFGame = Level.Game.Spawn( class'SmartCTFGameReplicationInfo' );
+
+  if( !ValidateSmartCTFMutator() )
+  {
+    SCTFGame.Destroy();
+    Destroy();
+  }
+}
+
+/*
+ * Get the original Scoreboard and store for SmartCTFScoreboard reference.
+ */
+function PreBeginPlay()
+{
+  super.PreBeginPlay();
+
+  SCTFGame.NormalScoreBoardClass = Level.Game.ScoreBoardType;
+  Level.Game.ScoreBoardType = class'SmartCTFScoreBoard';
+  Level.Game.default.ScoreBoardType = class'SmartCTFScoreBoard';
+
+  Log( "Original Scoreboard determined as" @ SCTFGame.NormalScoreBoardClass, 'SmartCTF' );
+}
+
+/*
+ * Startup and initialize.
+ */
+function PostBeginPlay()
+{
+  local FlagBase fb;
+  local CTFGame DMP;
+  local Mutator M;
+
+  Level.Game.Spawn( class'SmartCTFSpawnNotifyPRI' );
+
+  SaveConfig(); // Create the .ini if its not already there.
+
+  Level.Game.RegisterMessageMutator( Self );
+
+  // Since we have problem replicating config variables...
+  SCTFGame.bShowFCLocation = bShowFCLocation;
+  SCTFGame.bPlay30SecSound = bPlay30SecSound;
+  SCTFGame.bStatsDrawFaces = bStatsDrawFaces;
+  SCTFGame.bDrawLogo = bDrawLogo;
+
+  if( !bRememberOvertimeSetting ) bOvertime = True;
+
+  // Works serverside!
+  if( bEnhancedMultiKill ) Level.Game.DeathMessageClass = class'SmartCTFEnhancedDeathMessagePlus';
+
+  // Get the Flag bases
+  ForEach AllActors( class'FlagBase', fb ) FlagStands[ fb.Team ] = fb;
+
+  SCTFGame.EndStats = Spawn( class'SmartCTFEndStats', self );
+
+  // Change F2 Server Info screen, compatible with UTPure
+  if( bSmartCTFServerInfo )
+  {
+    DMP = CTFGame( Level.Game );
+    class<ChallengeHUD>( DMP.HUDType ).default.ServerInfoClass = class'SmartCTFServerInfo';
+    for( M = Level.Game.BaseMutator; M != None; M = M.NextMutator )
+    {
+      if( M.IsA( 'UTPure' ) ) // Let UTPure rehandle the scoreboard
+      {
+        M.PreBeginPlay();
+        SCTFGame.bServerInfoSetWithPure = True; // No need for the old fashioned way - it can be set server side.
+        break;
+      }
+    }
+    if( SCTFGame.bServerInfoSetWithPure && DMP.HUDType.Name != 'PureCTFHUD' ) SCTFGame.bServerInfoSetWithPure = False; // In this scenario another mod intervered and we still have to do it the old fashion way.
+    if( !SCTFGame.bServerInfoSetWithPure ) SCTFGame.DefaultHUDType = DMP.HUDType; // And in the old fashion way, the client will have to know the current HUD type.
+  }
+  else
+  {
+    SCTFGame.bServerInfoSetWithPure = True; // We didn't change anything, but neither do we want clientside intervention.
+  }
+
+  super.PostBeginPlay();
+
+  if( Level.NetMode == NM_DedicatedServer ) SetTimer( 1.0 , True);
+
+  Log( "SmartCTF" @ Version @ "loaded successfully.", 'SmartCTF' );
+}
+
+/*
+ * Returns True or False whether to keep this SmartCTF mutator instance, and sets bInitialized accordingly.
+ */
+function bool ValidateSmartCTFMutator()
+{
+  local Mutator M;
+  local bool bRunning;
+
+  M = Level.Game.BaseMutator;
+  while( M != None )
+  {
+    if( M != Self && M.Class == Self.Class )
+    {
+      bRunning = True;
+      break;
+    }
+    M = M.NextMutator;
+  }
+
+  if( !bEnabled )
+    Log( "Instance" @ Name @ "not loaded because bEnabled in .ini = False.", 'SmartCTF' );
+  else if( CTFGame( Level.Game ) == None )
+    Log( "Instance" @ Name @ "not loaded because gamestyle is not CTF.", 'SmartCTF' );
+  else if( bRunning )
+    Log( "Instance" @ Name @ "not loaded because it is already running.", 'SmartCTF' );
+  else
+    SCTFGame.bInitialized = True;
+
+  return SCTFGame.bInitialized;
+}
+
+/*
+ * For the flag bug each player gets a FlagChecker inventory on spawn.
+ */
+function ModifyPlayer( Pawn Other )
+{
+  local Inventory Inv;
+  local SmartCTFPlayerReplicationInfo OtherStats;
+
+  if( bFixFlagBug && Other.bIsPlayer && !( Other.PlayerReplicationInfo.bIsSpectator && !Other.PlayerReplicationInfo.bWaitingPlayer ) )
+  {
+    Inv = Spawn( class'SmartCTFFlagCheckerInventory' , Other );
+    if( Inv != None ) Inv.GiveTo( Other );
+  }
+
+  OtherStats = SCTFGame.GetStats( Other );
+  if( OtherStats == None ) return;
+
+  if( !OtherStats.bHadFirstSpawn )
+  {
+    OtherStats.bHadFirstSpawn = True;
+    FirstSpawn( Other );
+  }
+
+  OtherStats.SpawnTime = Level.TimeSeconds;
+
+  super.ModifyPlayer( Other );
+}
+
+/*
+ * Gets called when a new player or bot joins the game, that is when they first spawn.
+ */
+function FirstSpawn( Pawn Other )
+{
+  local byte ID;
+  local string SkinName, FaceName;
+
+  // Additional logging, useful for player tracking
+  if( Level.Game.LocalLog != None && PlayerPawn( Other ) != None && Other.bIsPlayer )
+  {
+    ID = PlayerPawn( Other ).PlayerReplicationInfo.PlayerID;
+    Level.Game.LocalLog.LogSpecialEvent( "IP", ID, PlayerPawn( Other ).GetPlayerNetworkAddress() );
+    Level.Game.LocalLog.LogSpecialEvent( "player", "NetSpeed", ID, PlayerPawn( Other ).Player.CurrentNetSpeed );
+    Level.Game.LocalLog.LogSpecialEvent( "player", "Fov", ID, PlayerPawn( Other ).FovAngle );
+    Level.Game.LocalLog.LogSpecialEvent( "player", "VoiceType", ID, Other.VoiceType );
+    if( Other.IsA( 'TournamentPlayer' ) )
+    {
+      if( Other.Skin == None )
+      {
+        Other.static.GetMultiSkin( Other, SkinName, FaceName );
+      }
+      else
+      {
+        SkinName = string( Other.Skin );
+        FaceName = "None";
+      }
+      Level.Game.LocalLog.LogSpecialEvent( "player", "Skin", ID, SkinName );
+      Level.Game.LocalLog.LogSpecialEvent( "player", "Face", ID, FaceName );
+    }
+  }
+}
+
+/*
+ * Gets called once when the Countdown before a Tournament game starts.
+ */
+function TournamentGameStarted()
+{
+  // Fix warmup mode bug + Overtime functionality
+  ClearStats();
+  if( bEnableOvertimeControl )
+  {
+    if( !bOvertime ) BroadcastLocalizedMessage( class'SmartCTFCoolMsg', 4 );
+    else BroadcastLocalizedMessage( class'SmartCTFCoolMsg', 3 );
+  }
+}
+
+/*
+ * Check for covers and seals, and adjust scores.
+ */
+function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector HitLocation )
+{
+  local PlayerReplicationInfo VictimPRI, KillerPRI;
+  local bool bPrevent, bVictimTeamHasFlag, bWarmupSkip;
+  local Pawn pn;
+  local float TimeAwake;
+  local SmartCTFPlayerReplicationInfo KillerStats, VictimStats;
+
+  bPrevent = super.PreventDeath( Victim, Killer, DamageType, HitLocation );
+  if( bPrevent ) return bPrevent; // Player didn't die, so return.
+
+  // If there is no victim, return.
+  if( Victim == None ) return bPrevent;
+  VictimPRI = Victim.PlayerReplicationInfo;
+  if( VictimPRI == None || !Victim.bIsPlayer || ( VictimPRI.bIsSpectator && !VictimPRI.bWaitingPlayer ) ) return bPrevent;
+  VictimStats = SCTFGame.GetStats( Victim );
+
+  if( VictimStats != None )
+  {
+    VictimStats.FragSpree = 0; // Reset FragSpree for Victim
+    VictimStats.SpawnKillSpree = 0;
+  }
+
+  // If there is no killer / suicide, return.
+  if( Killer == None || Killer == Victim )
+  {
+    if( bEnhancedMultiKill && EnhancedMultiKillBroadcast > 0 ) VictimStats.MultiLevel = 0;
+    return bPrevent;
+  }
+  KillerPRI = Killer.PlayerReplicationInfo;
+  if( KillerPRI == None || !Killer.bIsPlayer || ( KillerPRI.bIsSpectator && !KillerPRI.bWaitingPlayer ) ) return bPrevent;
+  KillerStats = SCTFGame.GetStats( Killer );
+
+  // Same Team! We don't count those stats like that in SmartCTF.
+  if( VictimPRI.Team == KillerPRI.Team ) return bPrevent;
+
+  // Increase Frags and FragSpree for Killer (Play "Too Easy" at 30)
+  if( KillerStats != None )
+  {
+    KillerStats.Frags++;
+    KillerStats.FragSpree++;
+  }
+
+  if( bEnhancedMultiKill && EnhancedMultiKillBroadcast > 0 )
+  {
+    VictimStats.MultiLevel = 0;
+    if( Level.TimeSeconds - KillerStats.LastKillTime < 3 )
+    {
+      KillerStats.MultiLevel++;
+      if( KillerStats.MultiLevel + 1 >= EnhancedMultiKillBroadcast ) Level.Game.BroadcastMessage( KillerPRI.PlayerName @ class'SmartCTFEnhancedMultiKillMessage'.static.GetBroadcastString( KillerStats.MultiLevel ) );
+    }
+    else
+    {
+      KillerStats.MultiLevel = 0;
+    }
+    KillerStats.LastKillTime = Level.TimeSeconds;
+  }
+
+  bWarmupSkip = DeathMatchPlus( Level.Game ).bTournament && !bTournamentGameStarted;
+
+  if( !bWarmupSkip )
+  {
+    // For Flag Kill, inc player's FlagKills and total
+    if( VictimPRI.HasFlag != None )
+    {
+      if( KillerStats != None ) KillerStats.FlagKills++;
+      KillerPRI.Score += FlagKillBonus;
+      // Already logged by UTStats serveractor. Dont want to do it twice.
+      //if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "flag_kill", KillerPRI.PlayerID, VictimPRI.PlayerID, VictimPRI.Team );
+    } // If Killer has Flag, no cover or seal for him
+    else if( KillerPRI.HasFlag == None && FCs[KillerPRI.Team] != None && FCs[KillerPRI.Team].PlayerReplicationInfo.HasFlag != None )
+    {
+      // COVER FRAG  / SEAL BASE
+      // If Killer's Team has had an FC
+
+      // If the FC has Flag Right now
+      // Defend kill
+      // org: If victim can see the FC or is within 600 unreal units (approx 40 feet) and has a line of sight to fc.
+      //if( Victim.canSee( FCs[KillerPRI.Team] ) || ( Victim.lineOfSightTo( FCs[KillerPRI.Team] ) && Distance( Victim.Location, FCs[KillerPRI.Team].Location ) < 600 ) )
+      // new: victim within 512 uu of FC
+      //      or killer within 512 uu of FC
+      //      or victim can see FC and was Victim within 1536 uu of FC
+      //      or killer can see FC and Victim victim within 1024 uu of FC
+      //      or victim has direct line to FC and was Victim within 768 uu
+      if( ( VSize( Victim.Location - FCs[KillerPRI.Team].Location ) < 512 )
+       || ( VSize( Killer.Location - FCs[KillerPRI.Team].Location ) < 512 )
+       || ( VSize( Victim.Location - FCs[KillerPRI.Team].Location ) < 1536 && Victim.canSee( FCs[KillerPRI.Team] ) )
+       || ( VSize( Victim.Location - FCs[KillerPRI.Team].Location ) < 1024 && Killer.canSee( FCs[KillerPRI.Team] ) )
+       || ( VSize( Victim.Location - FCs[KillerPRI.Team].Location ) < 768  && Victim.lineOfSightTo( FCs[KillerPRI.Team] ) ) )
+      {
+        // Killer DEFENDED THE Flag CARRIER
+        if( KillerStats != None )
+        {
+          KillerStats.Covers++;
+          KillerStats.CoverSpree++;    // Increment Cover spree
+        }
+        KillerPRI.Score += CoverBonus;       // Reward points
+
+        // Log cover
+        if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "flag_cover", KillerPRI.PlayerID, VictimPRI.PlayerID, KillerPRI.Team );
+
+        // Cover sprees
+        if( KillerStats != None )
+        {
+          if( KillerStats.CoverSpree == 3 )  // Cover x 3
+          {
+            if( CoverSpreeMsgType == 1 && PlayerPawn( Killer ) != None ) Killer.ClientMessage( class'SmartCTFMessage'.static.GetString( 4 + 64, KillerPRI, VictimPRI ) );
+            else if( CoverSpreeMsgType == 2 ) BroadcastMessage( class'SmartCTFMessage'.static.GetString( 4, KillerPRI, VictimPRI ) );
+            else if( CoverSpreeMsgType == 3 ) BroadcastLocalizedMessage( class'SmartCTFMessage', 4, KillerPRI, VictimPRI );
+          }
+          else if( KillerStats.CoverSpree == 4 ) // Cover x 4
+          {
+            if( CoverSpreeMsgType == 1 && PlayerPawn( Killer ) != None ) Killer.ClientMessage( class'SmartCTFMessage'.static.GetString( 5 + 64, KillerPRI, VictimPRI ) );
+            else if( CoverSpreeMsgType == 2 ) BroadcastMessage( class'SmartCTFMessage'.static.GetString( 5, KillerPRI, VictimPRI ) );
+            else if( CoverSpreeMsgType == 3 ) BroadcastLocalizedMessage( class'SmartCTFMessage', 5, KillerPRI, VictimPRI );
+          }
+          else //  // Covered FC
+          {
+            if( CoverMsgType == 1 && PlayerPawn( Killer ) != None ) Killer.ClientMessage( class'SmartCTFMessage'.static.GetString( 0 + 64, KillerPRI, VictimPRI ) );
+            else if( CoverMsgType == 2 ) BroadcastMessage( class'SmartCTFMessage'.static.GetString( 0, KillerPRI, VictimPRI ) );
+            else if( CoverMsgType == 3 ) BroadcastLocalizedMessage( class'SmartCTFMessage', 0, KillerPRI, VictimPRI );
+          }
+        }
+      }
+
+      // Seal kill
+      // If the map has player zones
+      if( VictimPRI.PlayerZone != None )
+      {
+        bVictimTeamHasFlag = True;
+        if( FCs[VictimPRI.Team] == None ) bVictimTeamHasFlag = False;
+        if( FCs[VictimPRI.Team] != None && FCs[VictimPRI.Team].PlayerReplicationInfo.HasFlag == None ) bVictimTeamHasFlag = False;
+        // If Victim's FC has not been set / If Victim's FC doesn't have our Flag
+        if( !bVictimTeamHasFlag )
+        {
+          // If Killer is Red & he and his FC's Location has Red
+          if( IsInZone( VictimPRI, KillerPRI.Team ) && IsInZone( FCs[KillerPRI.Team].PlayerReplicationInfo, KillerPRI.Team ) )
+          {
+            // Killer SEALED THE BASE
+            if( KillerStats != None )
+            {
+              KillerStats.Seals++;
+              KillerStats.SealSpree++;
+            }
+            KillerPRI.Score += SealBonus;
+            if( SealMsgType != 0 && KillerStats != None && KillerStats.SealSpree == 2 ) // Sealing base
+            {
+              if( SealMsgType == 1 && PlayerPawn( Killer ) != None ) Killer.ClientMessage( class'SmartCTFMessage'.static.GetString( 1 + 64, KillerPRI, VictimPRI ) );
+              else if( SealMsgType == 2 ) BroadcastMessage( class'SmartCTFMessage'.static.GetString( 1, KillerPRI, VictimPRI ) );
+              else if( SealMsgType == 3 ) BroadcastLocalizedMessage( class'SmartCTFMessage', 1, KillerPRI, VictimPRI );
+            }
+
+            // Log seal
+            if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "flag_seal", KillerPRI.PlayerID, VictimPRI.PlayerID, KillerPRI.Team ); // Log to ngLog;
+          }
+        }
+      }
+    }
+  }
+
+  if( bAfterGodLikeMsg && KillerStats != None && ( KillerStats.FragSpree == 30 || KillerStats.FragSpree == 35 ) )
+  {
+    for( pn = Level.PawnList; pn != None; pn = pn.NextPawn )
+    {
+      if( pn.IsA( 'TournamentPlayer' ) )
+        pn.ReceiveLocalizedMessage( class'SmartCTFSpreeMsg', KillerStats.FragSpree / 5 - 1, KillerPRI );
+    }
+  }
+
+  // Uber / Long Range kill if not HeadShot, trans, deemer, instarifle, or zoomed sniper.
+  // (Unzoomed) sniper can only be Uber Long Range kill.
+  if( bShowLongRangeMsg && TournamentPlayer( Killer ) != None )
+  {
+    if( DamageType != 'decapitated' && DamageType != 'Gibbed' && DamageType != 'RedeemerDeath' && SuperShockRifle( Killer.Weapon ) == None && PlayerPawn( Killer ).DesiredFOV == PlayerPawn( Killer ).DefaultFOV )
+    {
+      if( VSize( Killer.Location - Victim.Location ) > 1536 )
+      {
+        if( VSize( Killer.Location - Victim.Location ) > 3072 )
+        {
+          Killer.ReceiveLocalizedMessage( class'SmartCTFCoolMsg', 2, KillerPRI, VictimPRI );
+        }
+        else if( DamageType != 'shot' )
+        {
+          Killer.ReceiveLocalizedMessage( class'SmartCTFCoolMsg', 1, KillerPRI, VictimPRI );
+        }
+        // Log special kill.
+        if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "longrangekill", KillerPRI.PlayerID, VictimPRI.PlayerID );
+      }
+    }
+  }
+
+  // HeadShot tracking
+  if( DamageType == 'decapitated' && KillerStats != None ) KillerStats.HeadShots++;
+
+  // Spawnkill detection
+  if( bSpawnkillDetection && DamageType != 'Gibbed' && VictimStats != None ) // No telefrags
+  {
+    TimeAwake = Level.TimeSeconds - VictimStats.SpawnTime;
+    if( Level.Game.BaseMutator.MutatedDefaultWeapon() != class'Botpack.ImpactHammer' )
+    { // Arena mutator used, spawnkilling must be extreme to count
+      if( TimeAwake < 1 )
+      {
+        Killer.ReceiveLocalizedMessage( class'SmartCTFCoolMsg', 5, KillerPRI, VictimPRI );
+        KillerPRI.Score -= SpawnKillPenalty;
+        if( KillerStats != None ) KillerStats.SpawnKillSpree++;
+        if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "spawnkill", KillerPRI.PlayerID, VictimPRI.PlayerID, SpawnKillPenalty );
+        if( bShowSpawnKillerGlobalMsg && KillerStats != None && KillerStats.SpawnKillSpree > 2 ) BroadcastLocalizedMessage( class'SmartCTFMessage', 10, KillerPRI, VictimPRI );
+      }
+    }
+    else // No arena mutator
+    {
+      if( TimeAwake < 5 )
+      {
+        Killer.ReceiveLocalizedMessage( class'SmartCTFCoolMsg', 5, KillerPRI, VictimPRI );
+        KillerPRI.Score -= SpawnKillPenalty;
+        if( KillerStats != None ) KillerStats.SpawnKillSpree++;
+        if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "spawnkill", KillerPRI.PlayerID, VictimPRI.PlayerID, SpawnKillPenalty );
+        if( bShowSpawnKillerGlobalMsg && KillerStats != None && KillerStats.SpawnKillSpree > 2 ) BroadcastLocalizedMessage( class'SmartCTFMessage', 10, KillerPRI, VictimPRI );
+      }
+    }
+  }
+
+  return bPrevent;
+}
+
+/*
+ * ShieldBelt + Damage Amp tracking, spawnkill detection.
+ */
+function bool HandlePickupQuery( Pawn Other, Inventory Item, out byte bAllowPickup )
+{
+  local SmartCTFPlayerReplicationInfo OtherStats;
+
+  OtherStats = SCTFGame.GetStats( Other );
+
+  if( Item.IsA( 'UT_ShieldBelt' ) && OtherStats != None ) OtherStats.ShieldBelts++;
+  if( Item.IsA( 'UDamage' ) && OtherStats != None ) OtherStats.Amps++;
+
+  // For spawnkill detection
+  if( bSpawnkillDetection && OtherStats != None && OtherStats.SpawnTime != 0 )
+  {
+    if( Item.IsA( 'TournamentWeapon' ) || Item.IsA( 'UT_ShieldBelt' ) || Item.IsA( 'UDamage' ) || Item.IsA( 'HealthPack' ) || Item.IsA( 'UT_Invisibility' ) )
+    {
+      // This player has picked up a certain item making a kill on him no longer be qualified as a spawnkill.
+      OtherStats.SpawnTime = 0;
+    }
+  }
+
+  return super.HandlePickupQuery( Other, Item, bAllowPickup );
+}
+
+/*
+ * Proper check if a player is in a location with 'red' or 'blue' in the name.
+ */
+function bool IsInZone( PlayerReplicationInfo PRI, byte Team )
+{
+  local string Loc;
+
+  if( PRI.PlayerLocation != None ) Loc = PRI.PlayerLocation.LocationName;
+  else if( PRI.PlayerZone != None ) Loc = PRI.PlayerZone.ZoneName;
+  else return False;
+
+  if( Team == 0 ) return ( Instr( Caps( Loc ), "RED" ) != -1 );
+  else return ( Instr( Caps( Loc ), "BLUE" ) != -1 );
+}
+
+/*
+ * Add a player to the Red FC/assister list.
+ */
+function AddRedFlagCarrier( Pawn Aster, float Fct )
+{
+  local byte i;
+
+  if( Aster == None || !Aster.bIsPlayer || ( Aster.PlayerReplicationInfo.bIsSpectator && !Aster.PlayerReplicationInfo.bWaitingPlayer ) ) return;
+  if( RedFCIndex >= 32 ) RedFCIndex = 0;
+
+  // Check if already in list
+  for( i = 0; i < 32; i++ )
+  {
+    if( Aster == RedFlagCarrier[i] )
+    {
+      RedFlagCarrierTime[i] += Fct;
+      return;
+    }
+  }
+
+  RedFlagCarrier[RedFCIndex] = Aster;
+  RedFlagCarrierTime[RedFCIndex] = Fct;
+  RedFCIndex++;
+}
+
+function AddBlueFlagCarrier( Pawn Aster, float Fct )
+{
+  local byte i;
+
+  if( Aster == None || !Aster.bIsPlayer || ( Aster.PlayerReplicationInfo.bIsSpectator && !Aster.PlayerReplicationInfo.bWaitingPlayer ) ) return;
+  if( BlueFCIndex >= 32 ) BlueFCIndex = 0;
+
+  for( i = 0; i < 32; i++ )
+  {
+    if( Aster == BlueFlagCarrier[i] )
+    {
+      BlueFlagCarrierTime[i] += Fct;
+      return;
+    }
+  }
+
+  BlueFlagCarrier[BlueFCIndex] = Aster;
+  BlueFlagCarrierTime[BlueFCIndex] = Fct;
+  BlueFCIndex++;
+}
+
+
+/*
+ * Walk through Red assisters/FC and reward them with points because of a cap.
+ */
+function RewardRedFlagCarriers( bool bNotPlayedLead )
+{
+  local byte j;
+  local SmartCTFPlayerReplicationInfo AssisterStats;
+  local int Bonus;
+  local float TotalTime, f;
+
+  Bonus = AssistBonus;
+
+  // Calculate the total flag carrying time
+  for( j = 0; j < 32; j++ ) TotalTime += RedFlagCarrierTime[j];
+
+  for( j = 0; j < 32; j++ )
+  {
+    // If flagcarrier was not the capper
+    if( RedFlagCarrier[j] != None && RedFlagCarrier[j] != FCs[0] )
+    {
+      AssisterStats = SCTFGame.GetStats( RedFlagCarrier[j] );
+      if( AssisterStats != None ) AssisterStats.Assists++;
+
+      if( bNewCapAssistScoring )
+      {
+        if( TotalTime == 0 ) f = 0;
+        else f = ( RedFlagCarrierTime[j] / TotalTime ) * ( 7 + CapBonus ); // proportionally score
+        Bonus = f;
+      }
+      RedFlagCarrier[j].PlayerReplicationInfo.Score += Bonus;
+
+      if( PlayerPawn( RedFlagCarrier[j] ) != None )
+      {
+        if( bShowAssistConsoleMsg ) PlayerPawn( RedFlagCarrier[j] ).ClientMessage( "You get " $ Bonus $ " bonus pts for the Assist!" @ CarriedString( RedFlagCarrierTime[j], TotalTime ) );
+        if( bPlayAssistSound && bNotPlayedLead ) PlayerPawn( RedFlagCarrier[j] ).ReceiveLocalizedMessage( class'SmartCTFAudioMsg', 1 );
+      }
+      if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "Flag_assist", RedFlagCarrier[j].PlayerReplicationInfo.PlayerID, 0 );
+    }
+    // Award capper propertionally too. Behave like assist
+    else if( RedFlagCarrier[j] == FCs[0] )
+    {
+      if( bNewCapAssistScoring )
+      {
+        if( TotalTime == 0 ) f = 0;
+        else f = ( RedFlagCarrierTime[j] / TotalTime ) * ( 7 + CapBonus );
+        Bonus = f;
+        FCs[0].PlayerReplicationInfo.Score += Bonus - 7; // 7 already awarded by UT
+        if( bShowAssistConsoleMsg && PlayerPawn( FCs[0] ) != None ) PlayerPawn( FCs[0] ).ClientMessage( "You get " $ Bonus $ " pts for the Capture!" @ CarriedString( RedFlagCarrierTime[j], TotalTime ) );
+      }
+      else FCs[0].PlayerReplicationInfo.Score += CapBonus;
+    }
+  }
+  ResetFlagCarriers( 0 );
+}
+
+function RewardBlueFlagCarriers( bool bNotPlayedLead )
+{
+  local byte j;
+  local SmartCTFPlayerReplicationInfo AssisterStats;
+  local int Bonus;
+  local float TotalTime, f;
+
+  Bonus = AssistBonus;
+
+  for( j = 0; j < 32; j++ ) TotalTime += BlueFlagCarrierTime[j];
+
+  for( j = 0; j < 32; j++ )
+  {
+    if( BlueFlagCarrier[j] != None && BlueFlagCarrier[j] != FCs[1] )
+    {
+      AssisterStats = SCTFGame.GetStats( BlueFlagCarrier[j] );
+      if( AssisterStats != None ) AssisterStats.Assists++;
+
+      if( bNewCapAssistScoring )
+      {
+        if( TotalTime == 0 ) f = 0;
+        else f = ( BlueFlagCarrierTime[j] / TotalTime ) * ( 7 + CapBonus );
+        Bonus = f;
+      }
+      BlueFlagCarrier[j].PlayerReplicationInfo.Score += Bonus;
+
+      if( PlayerPawn( BlueFlagCarrier[j] ) != None )
+      {
+        if( bShowAssistConsoleMsg ) PlayerPawn( BlueFlagCarrier[j] ).ClientMessage( "You get " $ Bonus $ " bonus pts for the Assist!" @ CarriedString( BlueFlagCarrierTime[j], TotalTime ) );
+        if( bPlayAssistSound && bNotPlayedLead ) PlayerPawn( BlueFlagCarrier[j] ).ReceiveLocalizedMessage( class'SmartCTFAudioMsg', 1 );
+      }
+      if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "Flag_assist", BlueFlagCarrier[j].PlayerReplicationInfo.PlayerID, 0 );
+    }
+    else if( BlueFlagCarrier[j] == FCs[1] )
+    {
+      if( bNewCapAssistScoring )
+      {
+        if( TotalTime == 0 ) f = 0;
+        else f = ( BlueFlagCarrierTime[j] / TotalTime ) * ( 7 + CapBonus );
+        Bonus = f;
+        FCs[1].PlayerReplicationInfo.Score += Bonus - 7;
+        if( bShowAssistConsoleMsg && PlayerPawn( FCs[1] ) != None ) PlayerPawn( FCs[1] ).ClientMessage( "You get " $ Bonus $ " pts for the Capture!" @ CarriedString( BlueFlagCarrierTime[j], TotalTime ) );
+      }
+      else FCs[1].PlayerReplicationInfo.Score += CapBonus;
+    }
+  }
+  ResetFlagCarriers( 1 );
+}
+
+/*
+ * Clear assisters list of Team, because of flag return. Team = 2: clear both teams.
+ */
+function ResetFlagCarriers( byte Team )
+{
+  local byte i;
+
+  if( Team != 1 )
+  {
+    RedFCIndex = 0;
+    for( i = 0; i < 32; i++ )
+    {
+      RedFlagCarrier[i] = None;
+      RedFlagCarrierTime[i] = 0;
+    }
+  }
+  if( Team != 0 )
+  {
+    BlueFCIndex = 0;
+    for( i = 0; i < 32; i++ )
+    {
+      BlueFlagCarrier[i] = None;
+      BlueFlagCarrierTime[i] = 0;
+    }
+  }
+}
+
+function string CarriedString( float Time, float TotalTime )
+{
+  local int Perc;
+  local float f;
+
+  //if( !bNewCapAssistScoring ) return "";
+
+  if( TotalTime == 0 ) f = 0;
+  else f = ( Time / TotalTime ) * 100;
+  Perc = Clamp( f, 0, 100 );
+  if( Perc == 100 ) return "(Solocap," @ int( Time ) @ "sec.)";
+  else return "(Carried" @ Perc $ "% of the time:" @ int( Time ) @ "sec.)";
+}
+
+/*
+ * Intercept CTF messages to set FC states and adjust scores.
+ */
+function bool MutatorBroadcastLocalizedMessage( Actor Sender, Pawn Receiver, out class<LocalMessage> Message, out optional int Switch, out optional PlayerReplicationInfo RelatedPRI_1, out optional PlayerReplicationInfo RelatedPRI_2, out optional Object OptionalObject )
+{
+  local CTFFlag Flag;
+  local byte i, LeadSound;
+  local Pawn pn, FirstPawn;
+  local SmartCTFPlayerReplicationInfo ReceiverStats;
+
+  // This function gets called each time someone receives a message. Thus for a broadcast, we need to make sure code only
+  // gets executed once. We can do that by comparing Receiver with f.e. the FC if applicable, or with the first Pawn
+  // in the PawnList (FirstPawn, see below).
+
+  if( Message == class'CTFMessage' )
+  {
+    if( Sender.IsA( 'CTFGame' ) ) Flag = CTFFlag( OptionalObject );
+    else if( Sender.IsA( 'CTFFlag' ) ) Flag = CTFFlag( Sender );
+    else return super.MutatorBroadcastLocalizedMessage( Sender, Receiver, Message, Switch, RelatedPRI_1, RelatedPRI_2, OptionalObject );
+    if( Flag == None ) return super.MutatorBroadcastLocalizedMessage( Sender, Receiver, Message, Switch, RelatedPRI_1, RelatedPRI_2, OptionalObject );
+
+    // Warmup
+    if( DeathMatchPlus( Level.Game ).bTournament && !bTournamentGameStarted ) return super.MutatorBroadcastLocalizedMessage( Sender, Receiver, Message, Switch, RelatedPRI_1, RelatedPRI_2, OptionalObject );
+
+    switch( Switch )
+    {
+      // CAPTURE
+      // Sender: CTFGame, PRI: Scorer.PlayerReplicationInfo, OptObj: TheFlag
+      case 0:
+        if( Receiver == Pawn( RelatedPRI_1.Owner ) )
+        {
+          //Flag = CTFFlag( OptionalObject );
+          i = 1 - Flag.Team;
+          if( i == 1 ) AddBlueFlagCarrier( FCs[i], Level.TimeSeconds - PickupTime[i] );
+          else AddRedFlagCarrier( FCs[i], Level.TimeSeconds - PickupTime[i] );
+
+          // Increment Caps for the player and the total
+          ReceiverStats = SCTFGame.GetStats( FCs[i] );
+          if( ReceiverStats != None ) ReceiverStats.Captures++;
+
+          if( bPlayLeadSound )
+          {
+            if( ( CTFGame( Level.Game ).Teams[i].Score - 1 ) == CTFGame( Level.Game ).Teams[1 - i].Score ) LeadSound = 1;
+            if( CTFGame( Level.Game ).Teams[i].Score == CTFGame( Level.Game ).Teams[1 - i].Score ) LeadSound = 2;
+
+            for( pn = Level.PawnList; pn != None; pn = pn.NextPawn )
+            {
+              if( PlayerPawn( pn ) != None && pn.bIsPlayer )
+              {
+                if( LeadSound == 1 && pn.PlayerReplicationInfo.Team == i ) PlayerPawn( pn ).ReceiveLocalizedMessage( class'SmartCTFAudioMsg', 3 );
+                else if( LeadSound == 2 && pn.PlayerReplicationInfo.Team == ( 1 - i ) ) PlayerPawn( pn ).ReceiveLocalizedMessage( class'SmartCTFAudioMsg', 4 );
+              }
+            }
+          }
+
+          // Don't play Capture sound if "Got The Lead" sound has played
+          if( bPlayCaptureSound && PlayerPawn( FCs[i] ) != None )
+          {
+            if( !( bPlayLeadSound && ( LeadSound == 1 ) ) ) PlayerPawn( FCs[i] ).ReceiveLocalizedMessage( class'SmartCTFAudioMsg', 0 );
+          }
+
+          // Reward points To FC and Assisters and increment Assists count and total
+          if( Flag.Team == 0 ) RewardBlueFlagCarriers( !( bPlayLeadSound && ( LeadSound == 1 ) ) );
+          else RewardRedFlagCarriers( !( bPlayLeadSound && ( LeadSound == 1 ) ) );
+          ResetFlagCarriers( 2 );
+          GiveCoverSealBonus( Flag.Team ); // Reward pts to Covers And Sealers
+
+          // Reset FCs And Assister num n index And reset sprees
+          FCs[0] = None;
+          FCs[1] = None;
+          ResetSprees( 2 ); // Means reset all since no Team is equal to 2.
+        }
+        break;
+
+      // DROP
+      // Sender: CTFFlag, PRI: Holder.PlayerReplicationInfo, OptObj: CTFGame(Level.Game).Teams[Team]
+      case 2:
+        if( Receiver == Pawn( RelatedPRI_1.Owner ) )
+        {
+          i = 1 - Flag.Team;
+          if( i == 1 ) AddBlueFlagCarrier( FCs[i], Level.TimeSeconds - PickupTime[i] );
+          else AddRedFlagCarrier( FCs[i], Level.TimeSeconds - PickupTime[i] );
+        }
+        break;
+
+      // PICKUP (after the FC dropped it)
+      // Sender: CTFFlag, PRI: Holder.PlayerReplicationInfo, OptObj: CTFGame(Level.Game).Teams[Team]
+      case 4:
+        if( Receiver == Flag.Holder )
+        {
+          i = 1 - Flag.Team;
+          PickupTime[i] = Level.TimeSeconds;
+          FCs[i] = Flag.Holder;
+        }
+        break;
+
+      // GRAB
+      // Sender: CTFFlag, PRI: Holder.PlayerReplicationInfo, OptObj: CTFGame(Level.Game).Teams[Team]
+      case 6:
+        if( Receiver == Flag.Holder )
+        {
+          i = 1 - Flag.Team;
+          PickupTime[i] = Level.TimeSeconds;
+          FCs[i] = Flag.Holder; // Set the FC
+          RelatedPRI_1.Score += GrabBonus;
+          // Increment FC's Grabs and total Grabs
+          ReceiverStats = SCTFGame.GetStats( FCs[i] );
+          if( ReceiverStats != None ) ReceiverStats.Grabs++;
+        }
+        break;
+
+
+      // RETURN
+      case 1:
+      case 3:
+      case 5:
+        // Get a pawn that receives messages, thus triggers this function ( as Receiver )
+        for( FirstPawn = Level.PawnList; FirstPawn != None; FirstPawn = FirstPawn.NextPawn )
+        {
+          if( FirstPawn.bIsPlayer || FirstPawn.IsA( 'MessagingSpectator' ) ) break;
+        }
+
+        if( Receiver == FirstPawn ) // Just get the first one.
+        {
+          // Switch == 1: it's returned by player, sent by CTFGame.
+          //   Sender: CTFGame, PRI: Scorer.PlayerReplicationInfo, ObtObj: TheFlag
+          if( Switch == 1 )
+          {
+            // 8 pts for a close save (with msg), Half a pt for base returns, 2 pts for Mid, 4 pts for enemy base
+            if( VSize( Flag.Location - FlagStands[1 - Flag.Team].Location ) < 900 )
+            { // CLOSE SAVE
+              RelatedPRI_1.Score += CloseSaveReturnBonus;
+              if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "flag_return_closesave", RelatedPRI_1.PlayerID, Flag.Team );
+
+              // Only a msg if not a Flag standoff - other flag is home
+              if( CTFReplicationInfo( Level.Game.GameReplicationInfo ).FlagList[1 - Flag.Team].bHome )
+              {
+                if( SavedMsgType == 1 && PlayerPawn( RelatedPRI_1.Owner ) != None ) PlayerPawn( RelatedPRI_1.Owner ).ClientMessage( class'SmartCTFMessage'.static.GetString( 7 + 64, RelatedPRI_1 ) );
+                else if( SavedMsgType == 2 ) BroadcastMessage( class'SmartCTFMessage'.static.GetString( 7, RelatedPRI_1 ) );
+                else if( SavedMsgType == 3 ) BroadcastLocalizedMessage( class'SmartCTFMessage', 7, RelatedPRI_1 );
+                if( bPlaySavedSound && PlayerPawn( RelatedPRI_1.Owner ) != None ) PlayerPawn( RelatedPRI_1.Owner ).ReceiveLocalizedMessage( class'SmartCTFAudioMsg', 2 );
+              }
+            }
+            else if( IsInZone( RelatedPRI_1, 1 - Flag.Team ) )
+            {
+              RelatedPRI_1.Score += EnemyBaseReturnBonus; // If in enemy base
+              if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "flag_return_enemybase", RelatedPRI_1.PlayerID, Flag.Team );
+            }
+            else if( !IsInZone( RelatedPRI_1, Flag.Team ) ) // Not in enemy base and not on own side = mid
+            {
+              RelatedPRI_1.Score += MidReturnBonus; // If in Mid
+              if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "flag_return_mid", RelatedPRI_1.PlayerID, Flag.Team );
+            }
+            else
+            {
+              RelatedPRI_1.Score += BaseReturnBonus;
+              if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "flag_return_base", RelatedPRI_1.PlayerID, Flag.Team );
+            }
+
+          } // end if switch == 1
+
+          ResetSprees( Flag.Team ); // Reset cover sprees and seal sprees of Other Team
+          ResetFlagCarriers( 1 - Flag.Team ); // Reset assist list
+        }
+
+        break;
+    } // end switch
+  } // end if msg is CTF msg.
+
+  return super.MutatorBroadcastLocalizedMessage( Sender, Receiver, Message, Switch, RelatedPRI_1, RelatedPRI_2, OptionalObject );
+}
+
+/*
+ * Gives all players of Team that covered their FC extra bonus points after the cap.
+ */
+function GiveCoverSealBonus( int Team )
+{
+  local PlayerReplicationInfo pnPRI;
+  local byte i;
+  local SmartCTFPlayerReplicationInfo PawnStats;
+  local Pawn pn;
+
+  SCTFGame.RefreshPRI();
+  for( i = 0; i < 64; i++ )
+  {
+    PawnStats = SCTFGame.GetStatNr( i );
+    if( PawnStats == None ) break;
+    pnPRI = PlayerReplicationInfo( PawnStats.Owner );
+    pn = Pawn( pnPRI.Owner );
+
+    if( pnPRI.Team != Team )
+    {
+      if( PawnStats != None && PawnStats.SealSpree > 0 )
+      {
+        pnPRI.Score += PawnStats.SealSpree * SealBonus;
+        if( bShowSealRewardConsoleMsg && PlayerPawn( pn ) != None ) PlayerPawn( pn ).ClientMessage("You killed " $ PawnStats.SealSpree $ " people sealing off the base. You get " $ PawnStats.SealSpree * SealBonus $ " bonus pts!" );
+        if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "seal_bonus", pnPRI.PlayerID, PawnStats.SealSpree, PawnStats.SealSpree * SealBonus );
+      }
+      if( PawnStats != None && PawnStats.CoverSpree > 0 )
+      {
+        pnPRI.Score += PawnStats.CoverSpree * CoverBonus;
+        if( bShowCoverRewardConsoleMsg && PlayerPawn( pn ) != None ) PlayerPawn( pn ).ClientMessage("You killed " $ PawnStats.CoverSpree $ " people covering your FC. You get " $ PawnStats.CoverSpree * CoverBonus $ " bonus pts!" );
+        if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "cover_bonus", pnPRI.PlayerID, PawnStats.CoverSpree, PawnStats.CoverSpree * CoverBonus );
+      }
+    }
+  }
+}
+
+/*
+ * Reset cover and seal sprees of Team cause of flag return.
+ */
+function ResetSprees( int Team )
+{
+  local byte i;
+  local SmartCTFPlayerReplicationInfo PawnStats;
+
+  SCTFGame.RefreshPRI();
+  for( i = 0; i < 64; i++ )
+  {
+    PawnStats = SCTFGame.GetStatNr( i );
+    if( PawnStats == None ) break;
+    if( PlayerReplicationInfo( PawnStats.Owner ).Team != Team )
+    {
+      PawnStats.CoverSpree = 0;
+      PawnStats.SealSpree = 0;
+    }
+  }
+}
+
+/*
+ * Clear stats.
+ */
+function ClearStats()
+{
+  SCTFGame.ClearStats();
+  ResetFlagCarriers( 2 );
+  FCs[0] = None;
+  FCs[1] = None;
+}
+
+/*
+ * Give info on 'mutate smartctf' commands.
+ */
+function Mutate( string MutateString, PlayerPawn Sender )
+{
+  local int ID;
+  local string SoundsString, MsgsString, CMsgsString;
+  local SmartCTFPlayerReplicationInfo SenderStats;
+
+  if( Left( MutateString, 8 ) ~= "SmartCTF" )
+  {
+    ID = Sender.PlayerReplicationInfo.PlayerID;
+
+    if( Mid( MutateString, 9, 9 ) ~= "ShowStats" || Mid( MutateString, 9, 5 ) ~= "Stats" )
+    {
+      SenderStats = SCTFGame.GetStats( Sender );
+      if( SenderStats != None ) SenderStats.ToggleStats();
+    }
+    else if( Mid( MutateString, 9, 10 ) ~= "ForceStats" )
+    {
+      SenderStats = SCTFGame.GetStats( Sender );
+      if( SenderStats != None ) SenderStats.ShowStats();
+    }
+    else if( Mid( MutateString, 9, 5 ) ~= "Rules" || Mid( MutateString, 9, 6 ) ~= "Points" || Mid( MutateString, 9, 5 ) ~= "Score" || Mid( MutateString, 9, 5 ) ~= "Bonus" )
+    {
+      if( bNewCapAssistScoring ) Sender.ClientMessage( "SmartCTF Score Settings: - Cap/Assist:" @ 7 + CapBonus @ "pts divided over all FC's by time" );
+      else Sender.ClientMessage( "SmartCTF Score Settings: - Cap:" @ 7 + CapBonus @ "pts, Assist:" @ AssistBonus @ "pts." );
+      Sender.ClientMessage( "- Cover (Kills while defending FC) Bonus :" @ CoverBonus @ "pts each. And" @ CoverBonus @ "more pts each if FC caps." );
+      Sender.ClientMessage( "- Seal Bonus:" @ SealBonus @ "pts each, and" @ SealBonus @ "more pts each if FC caps." );
+      Sender.ClientMessage( "- Seals (Kills while sealing off base) are defined by: 1) Your FC is on your team's side of map. 2) Your flag is not taken. 3) You kill someone on your side of the map." );
+      Sender.ClientMessage( "- Flagkills:" @ 5 + FlagKillBonus @ "pts. Flag Returns in base are worth" @ DitchZeros( BaseReturnBonus ) @ "pts, in mid" @ DitchZeros( MidReturnBonus ) @ "pts, enemy base" @ DitchZeros( EnemyBaseReturnBonus ) @ "pts, VERY close to capping" @ DitchZeros( CloseSaveReturnBonus ) @ "pts." );
+      Sender.ClientMessage( "- Additional features: See Readme!" );
+    }
+    else if( Mid( MutateString, 9, 8 ) ~= "ForceEnd" )
+    {
+      if( !Sender.PlayerReplicationInfo.bAdmin && Level.NetMode != NM_StandAlone )
+      {
+        Sender.ClientMessage( "You need to be logged in as admin to force the game to end." );
+      }
+      else
+      {
+        BroadcastMessage( Sender.PlayerReplicationInfo.PlayerName @ "forced the game to end." );
+        bForcedEndGame = True;
+        CTFGame( Level.Game ).EndGame( "forced" );
+      }
+    }
+    else if( Mid( MutateString, 9, 10 ) ~= "ClearStats" )
+    {
+      if( !Sender.PlayerReplicationInfo.bAdmin && Level.NetMode != NM_StandAlone )
+      {
+        Sender.ClientMessage( "You need to be logged in as admin to be able to clear the stats." );
+      }
+      else
+      {
+        ClearStats();
+        Sender.ClientMessage( "Stats cleared." );
+      }
+    }
+    else
+    {
+      Sender.ClientMessage( "SmartCTF by {PiN}Kev_HH. SmartCTF " $ Version $ " by {DnF2}SiNiSTeR." );
+      Sender.ClientMessage( "- To toggle stats, bind a key or type in console: 'Mutate SmartCTF Stats'" );
+      Sender.ClientMessage( "- Type 'Mutate CTFInfo' for SmartCTF settings." );
+      Sender.ClientMessage( "- Type 'Mutate SmartCTF Rules' for new point system definition." );
+      Sender.ClientMessage( "- Type 'Mutate SmartCTF ForceEnd' to end a game." );
+      if( bEnableOvertimeControl ) Sender.ClientMessage( "- Type 'Mutate OverTime <On|Off>' for Overtime Control." );
+    }
+  }
+  else if( Left( MutateString, 7 ) ~= "CTFInfo" )
+  {
+    SoundsString = "";
+    if( bPlayCaptureSound ) SoundsString = SoundsString @ "Capture";
+    if( bPlayAssistSound ) SoundsString = SoundsString @ "Assist";
+    if( bPlaySavedSound ) SoundsString = SoundsString @ "Saved";
+    if( bPlayLeadSound ) SoundsString = SoundsString @ "Lead";
+    if( bPlay30SecSound ) SoundsString = SoundsString @ "30SecLeft";
+    if( SoundsString == "" ) SoundsString = "All off";
+    if( Left( SoundsString, 1 ) == " " ) SoundsString = Mid( SoundsString, 1 );
+    MsgsString = "";
+    if( CoverMsgType == 1 ) MsgsString = MsgsString @ "Covers<priv.con>";
+    if( CoverMsgType == 2 ) MsgsString = MsgsString @ "Covers<pub.con>";
+    if( CoverMsgType == 3 ) MsgsString = MsgsString @ "Covers";
+    if( CoverSpreeMsgType == 1 ) MsgsString = MsgsString @ "Coversprees<priv.con>";
+    if( CoverSpreeMsgType == 2 ) MsgsString = MsgsString @ "Coversprees<pub.con>";
+    if( CoverSpreeMsgType == 3 ) MsgsString = MsgsString @ "Coversprees";
+    if( SealMsgType == 1 ) MsgsString = MsgsString @ "Seals<priv.con>";
+    if( SealMsgType == 2 ) MsgsString = MsgsString @ "Seals<pub.con>";
+    if( SealMsgType == 3 ) MsgsString = MsgsString @ "Seals";
+    if( SavedMsgType == 1 ) MsgsString = MsgsString @ "Saved<priv.con>";
+    if( SavedMsgType == 2 ) MsgsString = MsgsString @ "Saved<pub.con>";
+    if( SavedMsgType == 3 ) MsgsString = MsgsString @ "Saved";
+    if( MsgsString == "" ) MsgsString = "All off";
+    if( Left( MsgsString, 1 ) == " " ) MsgsString = Mid( MsgsString, 1 );
+    CMsgsString = "";
+    if( bShowAssistConsoleMsg ) CMsgsString = CMsgsString @ "AssistBonus";
+    if( bShowSealRewardConsoleMsg ) CMsgsString = CMsgsString @ "SealReward";
+    if( bShowCoverRewardConsoleMsg ) CMsgsString = CMsgsString @ "CoverReward";
+    if( bShowLongRangeMsg ) CMsgsString = CMsgsString @ "LongRangeKill";
+    if( CMsgsString == "" ) CMsgsString = "All off";
+    if( Left( CMsgsString, 1 ) == " " ) CMsgsString = Mid( CMsgsString, 1 );
+    Sender.ClientMessage( "- Sounds:" @ SoundsString );
+    Sender.ClientMessage( "- Msgs:" @ MsgsString );
+    Sender.ClientMessage( "- Private Msgs:" @ CMsgsString );
+    Sender.ClientMessage( "- bFixFlagBug:" @ bFixFlagBug );
+    Sender.ClientMessage( "- bEnhancedMultiKill:" @ bEnhancedMultiKill $ ", Broadcast Level:" @ EnhancedMultiKillBroadcast );
+    Sender.ClientMessage( "- bShowFCLocation:" @ bShowFCLocation );
+    if( bSpawnKillDetection ) Sender.ClientMessage( "- bSpawnKillDetection: True, Global Msg:" @ bShowSpawnKillerGlobalMsg $ ", Penalty:" @ SpawnKillPenalty @ "pts" );
+    else Sender.ClientMessage( "- bSpawnKillDetection: False" );
+    Sender.ClientMessage( "- Overtime Control:" @ bEnableOvertimeControl @ "( Type 'Mutate OverTime' )" );
+    Sender.ClientMessage( "- Scores: ( Type 'Mutate SmartCTF Rules' )");
+  }
+  else if( Left( MutateString, 8 ) ~= "OverTime" )
+  {
+    if( !DeathMatchPlus( Level.Game ).bTournament )
+    {
+      Sender.ClientMessage( "Not in Tournament Mode: Default Sudden Death Overtime behaviour." );
+    }
+    else if( !bEnableOvertimeControl )
+    {
+      Sender.ClientMessage( "Overtime Control is not enabled: Default UT Sudden Death functionality." );
+      Sender.ClientMessage( "Admins can use: admin set SmartCTF bEnableOvertimeControl True" );
+    }
+    else
+    {
+      if( Left( MutateString, 11 ) ~= "OverTime On" )
+      {
+        if( !Sender.PlayerReplicationInfo.bAdmin && Level.NetMode != NM_StandAlone )
+        {
+          Sender.ClientMessage( "You need to be logged in as admin to change this setting." );
+        }
+        else
+        {
+          bOvertime = True;
+          SaveConfig();
+          BroadcastLocalizedMessage( class'SmartCTFCoolMsg', 3 );
+        }
+      }
+      else if( Left( MutateString, 12 ) ~= "OverTime Off" )
+      {
+        if( !Sender.PlayerReplicationInfo.bAdmin && Level.NetMode != NM_StandAlone )
+        {
+          Sender.ClientMessage( "You need to be logged in as admin to change this setting." );
+        }
+        else
+        {
+          bOvertime = False;
+          SaveConfig();
+          BroadcastLocalizedMessage( class'SmartCTFCoolMsg', 4 );
+        }
+      }
+      else
+      {
+        if( Sender.PlayerReplicationInfo.bAdmin || Level.NetMode == NM_StandAlone ) Sender.ClientMessage( "Usage: Mutate OverTime On|Off" );
+        if( !bOvertime ) Sender.ClientMessage( "Sudden Death Overtime is DISABLED." );
+        else Sender.ClientMessage( "Sudden Death Overtime is ENABLED (default)." );
+        Sender.ClientMessage( "Remember 'Disabled' Setting:" @ bRememberOvertimeSetting );
+      }
+    }
+  }
+
+  super.Mutate( MutateString, Sender );
+}
+
+/*
+ * To stop on a tie if needed.
+ */
+function bool HandleEndGame()
+{
+  local TeamInfo Best;
+  local byte i, MaxTeams;
+  local bool bTied;
+
+  if( CTFGame( Level.Game ).Teams[0].Score == CTFGame( Level.Game ).Teams[1].Score ) bTied = True;
+
+  if( bForcedEndGame || ( bEnableOvertimeControl && !bOvertime && DeathMatchPlus( Level.Game ).bTournament ) )
+  {
+    bForcedEndGame = False;
+    if( bTied )
+    {
+      SetEndCamsTiedCTFGame();
+      //ShowEndGameStats();
+      return True;
+    }
+  }
+
+  if( !bTied )
+  {
+    CalcSmartCTFEndStats();
+    //ShowEndGameStats();
+  }
+
+  if( NextMutator != None ) return NextMutator.HandleEndGame();
+  return False;
+}
+
+/*function ShowEndGameStats()
+{
+  local Pawn pn;
+  local SmartCTFPlayerReplicationInfo PlayerStats;
+
+  for( pn = Level.PawnList ; pn != None ; pn = pn.NextPawn )
+  {
+    if( PlayerPawn( pn ) != None && pn.bIsPlayer )
+    {
+      PlayerStats = SCTFGame.GetStats( pn );
+      if( PlayerStats != None ) PlayerStats.ShowStats();
+    }
+  }
+}*/
+
+/*
+ * Position end cameras for a tied game.
+ */
+function SetEndCamsTiedCTFGame()
+{
+  local Pawn pn, Best;
+  local PlayerPawn Player;
+  local CTFGame gg;
+
+  gg = CTFGame( Level.Game );
+
+  // Find Individual Winner
+  for( pn = Level.PawnList ; pn != None ; pn = pn.NextPawn )
+  {
+    if( pn.bIsPlayer && ( ( Best == None ) || ( pn.PlayerReplicationInfo.Score > Best.PlayerReplicationInfo.Score ) ) )
+      Best = pn;
+  }
+
+  gg.GameReplicationInfo.GameEndedComments = GameTieMessage;
+  gg.EndTime = Level.TimeSeconds + 3.0;
+
+  for( pn = Level.PawnList ; pn != None ; pn = pn.NextPawn )
+  {
+    Player = PlayerPawn( pn );
+    if( Player != None )
+    {
+      Player.bBehindView = True;
+      if( Player == Best ) Player.ViewTarget = None;
+      else Player.ViewTarget = Best;
+
+      Player.ClientPlaySound( sound'CaptureSound', , true );
+      Player.ClientGameEnded();
+    }
+    pn.GotoState( 'GameEnded' );
+  }
+
+  gg.CalcEndStats();
+  CalcSmartCTFEndStats();
+}
+
+function CalcSmartCTFEndStats()
+{
+  local SmartCTFPlayerReplicationInfo TopScore, TopFrags, TopCaps, TopCovers, TopFlagkills, TopHeadshots;
+  local string BestRecordDate;
+  local int ID;
+  local float PerHour;
+  local SmartCTFPlayerReplicationInfo PawnStats;
+  local PlayerReplicationInfo PRI;
+  local byte i;
+  local SmartCTFEndStats EndStats;
+
+  EndStats = SCTFGame.EndStats;
+
+  SCTFGame.RefreshPRI();
+  for( i = 0; i < 64; i++ )
+  {
+    PawnStats = SCTFGame.GetStatNr( i );
+    if( PawnStats == None ) break;
+
+    if( TopScore == None || PlayerReplicationInfo( PawnStats.Owner ).Score > PlayerReplicationInfo( TopScore.Owner ).Score ) TopScore = PawnStats;
+    if( TopFrags == None || PawnStats.Frags > TopFrags.Frags ) TopFrags = PawnStats;
+    if( TopCaps == None || PawnStats.Captures > TopCaps.Captures ) TopCaps = PawnStats;
+    if( TopCovers == None || PawnStats.Covers > TopCovers.Covers ) TopCovers = PawnStats;
+    if( TopFlagkills == None || PawnStats.FlagKills > TopFlagkills.FlagKills ) TopFlagkills = PawnStats;
+    if( TopHeadshots == None || PawnStats.HeadShots > TopHeadshots.HeadShots ) TopHeadshots = PawnStats;
+  }
+
+  PRI = PlayerReplicationInfo( TopScore.Owner );
+  PerHour = ( Level.TimeSeconds - PRI.StartTime ) / 3600;
+  if( PRI.Score / PerHour > EndStats.MostPoints.Count && Level.TimeSeconds - PRI.StartTime > 300 )
+  {
+    EndStats.MostPoints.Count = PRI.Score / PerHour;
+    EndStats.MostPoints.PlayerName = PRI.PlayerName;
+    EndStats.MostPoints.MapName = Level.Title;
+    CTFGame( Level.Game ).GetTimeStamp( BestRecordDate );
+    EndStats.MostPoints.RecordDate = BestRecordDate;
+  }
+
+  PRI = PlayerReplicationInfo( TopFrags.Owner );
+  PerHour = ( Level.TimeSeconds - PRI.StartTime ) / 3600;
+  if( TopFrags.Frags / PerHour > EndStats.MostFrags.Count && Level.TimeSeconds - PRI.StartTime > 300 )
+  {
+    EndStats.MostFrags.Count = TopFrags.Frags / PerHour;
+    EndStats.MostFrags.PlayerName = PRI.PlayerName;
+    EndStats.MostFrags.MapName = Level.Title;
+    CTFGame( Level.Game ).GetTimeStamp( BestRecordDate );
+    EndStats.MostFrags.RecordDate = BestRecordDate;
+  }
+
+  PRI = PlayerReplicationInfo( TopCaps.Owner );
+  PerHour = ( Level.TimeSeconds - PRI.StartTime ) / 3600;
+  if( TopCaps.Captures / PerHour > EndStats.MostCaps.Count && Level.TimeSeconds - PRI.StartTime > 300 )
+  {
+    EndStats.MostCaps.Count = TopCaps.Captures / PerHour;
+    EndStats.MostCaps.PlayerName = PRI.PlayerName;
+    EndStats.MostCaps.MapName = Level.Title;
+    CTFGame( Level.Game ).GetTimeStamp( BestRecordDate );
+    EndStats.MostCaps.RecordDate = BestRecordDate;
+  }
+
+  PRI = PlayerReplicationInfo( TopCovers.Owner );
+  PerHour = ( Level.TimeSeconds - PRI.StartTime ) / 3600;
+  if( TopCovers.Covers / PerHour > EndStats.MostCovers.Count && Level.TimeSeconds - PRI.StartTime > 300 )
+  {
+    EndStats.MostCovers.Count = TopCovers.Covers / PerHour;
+    EndStats.MostCovers.PlayerName = PRI.PlayerName;
+    EndStats.MostCovers.MapName = Level.Title;
+    CTFGame( Level.Game ).GetTimeStamp( BestRecordDate );
+    EndStats.MostCovers.RecordDate = BestRecordDate;
+  }
+
+  PRI = PlayerReplicationInfo( TopFlagkills.Owner );
+  PerHour = ( Level.TimeSeconds - PRI.StartTime ) / 3600;
+  if( TopFlagkills.FlagKills / PerHour > EndStats.MostFlagKills.Count && Level.TimeSeconds - PRI.StartTime > 300 )
+  {
+    EndStats.MostFlagKills.Count = TopFlagkills.FlagKills / PerHour;
+    EndStats.MostFlagKills.PlayerName = PRI.PlayerName;
+    EndStats.MostFlagKills.MapName = Level.Title;
+    CTFGame( Level.Game ).GetTimeStamp( BestRecordDate );
+    EndStats.MostFlagKills.RecordDate = BestRecordDate;
+  }
+
+  PRI = PlayerReplicationInfo( TopHeadshots.Owner );
+  PerHour = ( Level.TimeSeconds - PRI.StartTime ) / 3600;
+  if( TopHeadshots.HeadShots / PerHour > EndStats.MostHeadShots.Count && Level.TimeSeconds - PRI.StartTime > 300 )
+  {
+    EndStats.MostHeadShots.Count = TopHeadshots.HeadShots / PerHour;
+    EndStats.MostHeadShots.PlayerName = PRI.PlayerName;
+    EndStats.MostHeadShots.MapName = Level.Title;
+    CTFGame( Level.Game ).GetTimeStamp( BestRecordDate );
+    EndStats.MostHeadShots.RecordDate = BestRecordDate;
+  }
+
+  EndStats.SaveConfig();
+}
+
+/*
+ * Convert a float to a readable string.
+ */
+function string DitchZeros( float nr )
+{
+  local string str;
+
+  str = string( nr );
+  while( Right( str, 1 ) == "0" )
+  {
+    str = Left( str , Len( str ) - 1 );
+  }
+  if( Right( str, 1 ) == "." ) str = Left( str , Len( str ) - 1 );
+
+  return str;
+}
+
+//----------------------------------------------------------------------------------------------------------------
+//------------------------------------------------ CLIENT FUNCTIONS ----------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+
+/*
+ * Render the HUD that is startup logo and FC location.
+ * ONLY gets executed on clients.
+ */
+simulated event PostRender( Canvas C )
+{
+  local int i, Y;
+  local float DummyY, Size;
+  local string TempStr;
+
+  // Get stuff relating to PlayerOwner, if not gotten. Also spawn Font info.
+  if( PlayerOwner == None )
+  {
+    PlayerOwner = C.Viewport.Actor;
+    MyHUD = ChallengeHUD( PlayerOwner.MyHUD );
+
+    pTGRI = TournamentGameReplicationInfo( PlayerOwner.GameReplicationInfo );
+    pPRI = PlayerOwner.PlayerReplicationInfo;
+    MyFonts = MyHUD.MyFonts;
+  }
+
+  // Draw the FC Location
+  if( SCTFGame.bShowFCLocation )
+  {
+    for( i = 0; i < 32; i++ )
+    {
+      if( pTGRI.PRIArray[i] == None ) break;
+      if( pTGRI.PRIArray[i].bIsSpectator && !pTGRI.PRIArray[i].bWaitingPlayer ) continue;
+      if( pTGRI.PRIArray[i].HasFlag != None && pTGRI.PRIArray[i].Team == pPRI.Team && pTGRI.PRIArray[i].PlayerID != pPRI.PlayerID && !pTGRI.PRIArray[i].HasFlag.IsA( 'GreenFlag' ) )
+      {
+        if( pTGRI.PRIArray[i].PlayerLocation != None ) TempStr = pTGRI.PRIArray[i].PlayerLocation.LocationName;
+        else if( pTGRI.PRIArray[i].PlayerZone != None ) TempStr = pTGRI.PRIArray[i].PlayerZone.ZoneName;
+        if( TempStr == "" )
+        {
+          TempStr = "Nameless Area";
+          C.Style = ERenderStyle.STY_Translucent;
+        }
+        else
+        {
+          C.Style = ERenderStyle.STY_Normal;
+        }
+
+        if( pPRI.Team == 0 ) C.DrawColor = RedTeamColor;
+        else C.DrawColor = BlueTeamColor;
+
+        C.Font = MyFonts.GetSmallestFont( C.ClipX );
+        C.StrLen( TempStr, Size, DummyY );
+        if( MyHUD.bHideAllWeapons ) Y = C.ClipY;
+        else if( MyHUD.HudScale * MyHUD.WeaponScale * C.ClipX <= C.ClipX - 256 * MyHUD.Scale) Y = C.ClipY - 64 * MyHUD.Scale;
+        else Y = C.ClipY - 128 * MyHUD.Scale;
+
+        C.SetPos( C.ClipX - Size - 6, Y - 4 - 32 + ( 32 - DummyY ) / 2 );
+        C.DrawText( TempStr );
+        if( C.Style == ERenderStyle.STY_Translucent ) C.DrawColor = Gray;
+        else C.DrawColor = White;
+        C.SetPos( C.ClipX - Size - 6 - 32 - 4, Y - 4 - 32 );
+        if( pPRI.Team == 0 ) C.DrawIcon( texture'blueflag', 1.0 );
+        else C.DrawIcon( texture'redflag', 1.0 );
+
+        break;
+      }
+    }
+  }
+
+  // Draw "Powered by.." logo when player joins
+  if( DrawLogo != 0 )
+  {
+    C.Style = ERenderStyle.STY_Translucent;
+    if( DrawLogo > 1 )
+    {
+      C.DrawColor.R = 255 - DrawLogo;
+      C.DrawColor.G = 255 - DrawLogo;
+      C.DrawColor.B = 255 - DrawLogo;
+    }
+    else // 1
+    {
+      C.Style = ERenderStyle.STY_Translucent;
+      C.DrawColor = White;
+    }
+    C.SetPos( C.ClipX - 128 - 16, 16 );
+    C.DrawIcon( texture'powered', 1 );
+
+    C.Font = MyFonts.GetBigFont( C.ClipX );
+    C.StrLen( LogoText , Size, DummyY );
+    C.SetPos( C.ClipX - Size - 16, 16 + 8 + 128 );
+    C.DrawText( LogoText );
+  }
+
+  C.Style = ERenderStyle.STY_Normal;
+
+  if( NextHUDMutator != None ) NextHUDMutator.PostRender( C );
+}
+
+
+/*
+ * Executed on the client when that player joins the server.
+ */
+simulated function ClientJoinServer( Pawn Other )
+{
+  if( PlayerPawn( Other ) == None || !Other.bIsPlayer ) return;
+
+  if( !SCTFGame.bDrawLogo )
+  {
+    Other.ClientMessage( "Running SmartCTF " $ Version $ ". Type 'Mutate SmartCTF' in the console for info." );
+  }
+  else
+  {
+    DrawLogo = 1;
+    SetTimer( 0.05 , True);
+  }
+  // Since this gets called in the HUD it needs to be changed clientside.
+  if( SCTFGame.bPlay30SecSound ) class'TimeMessage'.default.TimeSound[5] = sound'Announcer.CD30Sec';
+}
+
+/*
+ * Clientside settings that need to be set for the first time, checking for welcome message and
+ * end of game screen.
+ */
+simulated function Tick( float delta )
+{
+  local int i;
+  local SmartCTFPlayerReplicationInfo OwnerStats;
+
+  // Execute on client
+  if( Level.NetMode != NM_DedicatedServer )
+  {
+    if( SCTFGame == None )
+    {
+      ForEach AllActors( class'SmartCTFGameReplicationInfo', SCTFGame ) break;
+      if( SCTFGame == None ) return;
+
+      if( !SCTFGame.bServerInfoSetWithPure && SCTFGame.DefaultHUDType != None ) // client side required
+      {
+        class<ChallengeHUD>( SCTFGame.DefaultHUDType ).default.ServerInfoClass = class'SmartCTFServerInfo';
+      }
+    }
+    if( !SCTFGame.bInitialized ) return;
+
+    if( !bHUDMutator ) RegisterHUDMutator();
+
+    if( PlayerOwner != None )
+    {
+      if( !bClientJoinPlayer )
+      {
+        bClientJoinPlayer = True;
+        ClientJoinServer( PlayerOwner );
+      }
+
+      // If Game is over, bring up F3.
+      if( PlayerOwner.GameReplicationInfo.GameEndedComments != "" && !bGameEnded )
+      {
+        bGameEnded = True;
+        //OwnerStats = SCTFGame.GetStatsByPRI( pPRI );
+        //if( OwnerStats != None ) OwnerStats.ShowStats();
+        PlayerOwner.ConsoleCommand( "mutate SmartCTF ForceStats" );
+      }
+    }
+  }
+}
+
+/*
+ * For showing the Logo a Timer is used instead of Ticks so its equal for each tickrate.
+ * On the server it keeps track of some replicated data and whether a Tournament game is starting.
+ */
+simulated function Timer()
+{
+  local bool bReady;
+  local Pawn pn;
+
+  super.Timer();
+
+  // Clients - 0.05 second timer. Stops after logo is displayed.
+  if( Level.NetMode != NM_DedicatedServer )
+  {
+    if( DrawLogo != 0 )
+    {
+      LogoCounter++;
+      if( DrawLogo == 255 )
+      {
+        DrawLogo = 0;
+        if( Role != ROLE_Authority ) SetTimer( 0.0, False ); // client timer off
+        else SetTimer( 1.0, True ); // standalone game? keep timer running for bit below.
+      }
+      else if( LogoCounter > 60 )
+      {
+        DrawLogo += 8;
+        if( DrawLogo > 255 ) DrawLogo = 255;
+      }
+      else if( LogoCounter == 60 )
+      {
+        DrawLogo = 5;
+      }
+    }
+  }
+
+  // Server - 1 second timer. infinite.
+  if( Level.NetMode == NM_DedicatedServer || Role == ROLE_Authority )
+  {
+    if( ++TRCount > 2 )
+    {
+      SCTFGame.TickRate = int( ConsoleCommand( "get IpDrv.TcpNetDriver NetServerMaxTickRate" ) );
+      TRCount = 0;
+    }
+
+    // Update config vars to client / manual replication :E
+    // Allows for runtime changing of settings.
+    if( SCTFGame.bShowFCLocation != bShowFCLocation ) SCTFGame.bShowFCLocation = bShowFCLocation;
+    if( SCTFGame.bStatsDrawFaces != bStatsDrawFaces ) SCTFGame.bStatsDrawFaces = bStatsDrawFaces;
+    if( SCTFGame.bDrawLogo != bDrawLogo ) SCTFGame.bDrawLogo = bDrawLogo;
+
+    if( !bTournamentGameStarted && DeathMatchPlus( Level.Game ).bTournament )
+    {
+      if( DeathMatchPlus( Level.Game ).bRequireReady && DeathMatchPlus( Level.Game ).CountDown > 0
+       && ( DeathMatchPlus( Level.Game ).NumPlayers == DeathMatchPlus( Level.Game ).MaxPlayers || Level.NetMode == NM_Standalone )
+       && DeathMatchPlus( Level.Game ).RemainingBots <= 0 )
+      {
+        bReady = True;
+        for( pn = Level.PawnList; pn != None; pn = pn.NextPawn )
+        {
+          if( pn.IsA( 'PlayerPawn' ) && !pn.IsA( 'Spectator' ) && !PlayerPawn( pn ).bReadyToPlay )
+          {
+            bReady = False;
+            break;
+          }
+        }
+      }
+
+      if( bReady )
+      {
+        bTournamentGameStarted = True;
+        TournamentGameStarted();
+      }
+    }
+  }
+
+}
+
+defaultproperties
+{
+     Version="4B"
+     GameTieMessage="The game ended in a tie!"
+     LogoText="SmartCTF 4B"
+     RedTeamColor=(R=255)
+     BlueTeamColor=(G=128,B=255)
+     White=(R=255,G=255,B=255)
+     Gray=(R=128,G=128,B=128)
+     bEnabled=True
+     CapBonus=8
+     AssistBonus=7
+     CoverBonus=2
+     SealBonus=2
+     BaseReturnBonus=0.500000
+     MidReturnBonus=2.000000
+     EnemyBaseReturnBonus=4.000000
+     CloseSaveReturnBonus=8.000000
+     SpawnKillPenalty=1
+     bFixFlagBug=True
+     bEnhancedMultiKill=True
+     EnhancedMultiKillBroadcast=3
+     bShowFCLocation=True
+     bSmartCTFServerInfo=True
+     bNewCapAssistScoring=True
+     bSpawnkillDetection=True
+     bAfterGodLikeMsg=True
+     bStatsDrawFaces=True
+     bDrawLogo=True
+     CoverSpreeMsgType=1
+     SealMsgType=1
+     SavedMsgType=3
+     bShowSpawnKillerGlobalMsg=True
+     bShowAssistConsoleMsg=True
+     bShowSealRewardConsoleMsg=True
+     bShowCoverRewardConsoleMsg=True
+     bPlayAssistSound=True
+     bPlaySavedSound=True
+     bPlayLeadSound=True
+     bPlay30SecSound=True
+     bOverTime=True
+     bAlwaysRelevant=True
+     RemoteRole=ROLE_SimulatedProxy
+}
