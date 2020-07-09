@@ -120,5 +120,4 @@ simulated function DoBind(PlayerPawn P)
 
 defaultproperties
 {
-     RemoteRole=ROLE_SimulatedProxy
 }

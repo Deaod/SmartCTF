@@ -1,8 +1,8 @@
 class SmartCTFPlayerReplicationInfo expands ReplicationInfo;
 
 // Replicated
-var int Captures, Assists, Grabs, Covers, Seals, FlagKills, DefKills;
-var int Frags, HeadShots, ShieldBelts, Amps;
+var int Captures, Assists, Grabs, Covers, Seals, FlagKills, DefKills, HeadShots, Saves;
+var int Frags, Armors, Boots, ShieldBelts, Amps, Kegs;		// zac wuz here - adding them kegs, armor and boots,
 
 var string CountryPrefix; // for IpToCountry
 
@@ -26,8 +26,8 @@ replication
 {
   // Stats
   reliable if( Role == ROLE_Authority )
-    Captures, Assists, Grabs, Covers, Seals, FlagKills, DefKills,
-    Frags, HeadShots, ShieldBelts, Amps, CountryPrefix;
+    Captures, Assists, Grabs, Covers, Saves, Armors, Boots, Seals, FlagKills, DefKills,
+    Frags, HeadShots, ShieldBelts, Amps, Kegs, CountryPrefix;
 
   // Toggle stats functions
   reliable if( Role == ROLE_Authority )
@@ -149,8 +149,14 @@ function ClearStats()
   FlagKills = 0;
   Frags = 0;
   HeadShots = 0;
-  ShieldBelts = 0;
+  Saves = 0;
+  
+  ShieldBelts = 0;  
   Amps = 0;
+  Kegs = 0;
+  Boots = 0;
+  Armors = 0;
+  
 
   FragSpree = 0;
   CoverSpree = 0;

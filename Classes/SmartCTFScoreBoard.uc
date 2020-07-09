@@ -22,7 +22,7 @@ var Font StatFont, CapFont, FooterFont, GameEndedFont, PlayerNameFont, FragsFont
 var Font PtsFont22, PtsFont20, PtsFont18, PtsFont16, PtsFont14, PtsFont12;
 
 var int MaxCaps, MaxAssists, MaxGrabs, MaxCovers, MaxSeals, MaxDefKills, MaxFlagKills, MaxFrags, MaxDeaths;
-var int TotShieldBelts, TotAmps;
+var int TotShieldBelts, TotAmps, TotKegs, TotArmors, TotBoots;
 
 var bool bSealsOrDefs;
 var bool bStarted;
@@ -191,13 +191,13 @@ function ShowIndicator( Canvas C )
 
 function SmartCTFShowScores( Canvas C )
 {
-  local int ID, i, j, Time, AvgPing, AvgPL, TotSB, TotAmp;
+  local int ID, i, j, Time, AvgPing, AvgPL, TotSB, TotAmp, TotKeg, TotArmor, TotBoot; // zac wuz here- adding total # of kegs
   local float Eff;
   local int RedY, BlueY, X, Y;
   local float Nil, DummyX, DummyY, SizeX, SizeY, Buffer, Size;
   local byte LabelDrawn[2], Rendered[2];
   local Color TeamColor, TempColor;
-  local string TempStr;
+  local string TempStr, ifheadshots;
   local SmartCTFPlayerReplicationInfo PlayerStats, PlayerStats2;
   local int FlagShift; /* shifting elements to fit a flag */
 
@@ -293,6 +293,10 @@ function SmartCTFShowScores( Canvas C )
       AvgPL = 0;
       TotSB = 0;
       TotAmp = 0;
+	  TotKeg = 0;
+	  TotArmor = 0;
+	  TotBoot = 0;
+	  //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
       for( j = 0; j < 32; j++ )
       {
         if( Ordered[j] == None ) break;
@@ -304,6 +308,9 @@ function SmartCTFShowScores( Canvas C )
           AvgPL += Ordered[j].PacketLoss;
           TotSB += PlayerStats2.ShieldBelts;
           TotAmp += PlayerStats2.Amps;
+		  TotKeg += PlayerStats2.Kegs;
+		  TotArmor += PlayerStats2.Armors;
+		  TotBoot += PlayerStats2.Boots;
         }
       }
       if( pTGRI.Teams[Ordered[i].Team].Size != 0 )
@@ -313,14 +320,32 @@ function SmartCTFShowScores( Canvas C )
       }
       if( TotShieldBelts == 0 ) TotSB = 0;
       else TotSB = Clamp( float( TotSB ) / float( TotShieldBelts ) * 100, 0, 100 );
+	  
       if( TotAmps == 0 ) TotAmp = 0;
       else TotAmp = Clamp( float( TotAmp ) / float( TotAmps ) * 100, 0, 100 );
-      TempStr = "PING:" $ AvgPing $ " PL:" $ AvgPL $ "%";
+	  
+	  if( TotKegs == 0) TotKeg = 0;
+	  else TotKeg = Clamp( float (TotKeg) / float( TotKegs ) * 100, 0, 100);
+	  
+	  if( TotArmors == 0) TotArmor = 0;
+	  else TotArmor = Clamp( float (TotArmor) / float( TotArmors ) * 100, 0, 100);
+	  
+	  if( TotBoots == 0) TotBoot = 0;
+	  else TotBoot = Clamp( float (TotBoot) / float( TotBoots ) * 100, 0, 100);
+	  
+      TempStr = "PING:" $ AvgPing $ " PL:" $ AvgPL $ "%" $ " TM:" $ Time;
       C.DrawText( TempStr );
       C.SetPos( X + StatIndent + DummyX + 2 * StatsHorSpacing, Y + ( SizeY - DummyY * 2 ) / 2 + DummyY );
-      TempStr = "TM:" $ Time;
-      if( TotSB != 0 ) TempStr = TempStr @ "SB:" $ TotSB $ "%";
-      if( TotAmp != 0 ) TempStr = TempStr @ "AM:" $ TotAmp $ "%";
+      TempStr = "";
+	  
+	  // zac wuz here - this is the team percentage of item pickups, before it would show only the items that the picked up
+	  // now it shows 0 % for every item when they didn't pick it up, instead of it not being there
+		TempStr = TempStr $ "SB:" $ TotSB $ "%";
+		TempStr = TempStr @ " AMP:" $ TotAmp $ "%";
+		TempStr = TempStr @ " KEG:" $ TotKeg $ "%";
+		//TempStr = TempStr @ " ARM:" $ TotArmor $ "%";
+		//TempStr = TempStr @ " BT:" $ TotBoot $ "%";
+	  
       C.DrawText( TempStr );
 
       C.bNoSmooth = True;
@@ -376,19 +401,27 @@ function SmartCTFShowScores( Canvas C )
       C.Font = TinyInfoFont;
       C.StrLen( "TEST", Buffer, DummyY );
 
-      // Draw Time, Eff, HS, SB, Amp
+      // zac - players individual pickups
       C.SetPos( X + StatIndent + Size + StatsHorSpacing, Y + ( NameHeight - DummyY * 2 ) / 2 );
       TempStr = "";
-      if( PlayerStats.HeadShots != 0 ) TempStr = TempStr $ "HS:" $ PlayerStats.HeadShots;
-      if( PlayerStats.ShieldBelts != 0 ) TempStr = TempStr @ "SB:" $ PlayerStats.ShieldBelts;
+	  // zac wuz here - this is the individual player amounts this will show as " SB:2 AM:3 KG:4 AR:2 BT:1 "
+      if( PlayerStats.ShieldBelts != 0 ) TempStr = TempStr $ "SB:" $ PlayerStats.ShieldBelts; 
       if( PlayerStats.Amps != 0 ) TempStr = TempStr @ "AM:" $ PlayerStats.Amps;
+	  if( PlayerStats.Kegs != 0 ) TempStr = TempStr @ "KG:"$ PlayerStats.Kegs;
+	  if( PlayerStats.Armors != 0) TempStr = TempStr @ "AR:" $ PlayerStats.Armors;
+	  if( PlayerStats.Boots != 0) TempStr = TempStr @ "BT:" $ PlayerStats.Boots;
+	  
+	  //[20:47] <sLY> boots = BT
+	  //[20:47] <sLY> armor = AR
+	 
       if( Left( TempStr, 1 ) == " " ) TempStr = Mid( TempStr, 1 );
       C.DrawText( TempStr );
       Time = Max( 1, ( Level.TimeSeconds + pPRI.StartTime - Ordered[i].StartTime ) / 60 );
       if( PlayerStats.Frags + Ordered[i].Deaths == 0 ) Eff = 0;
-      else Eff = ( PlayerStats.Frags / ( PlayerStats.Frags + Ordered[i].Deaths ) ) * 100;
+	  else Eff = ( PlayerStats.Frags / ( PlayerStats.Frags + Ordered[i].Deaths ) ) * 100;
       C.SetPos( X + StatIndent + Size + StatsHorSpacing, Y + ( NameHeight - DummyY * 2 ) / 2 + DummyY );
-      C.DrawText( "TM:" $ Time $ " EFF:" $ Clamp( int( Eff ), 0, 100 ) $ "%" );
+	   
+      C.DrawText( "TM:" $ Time $ " EFF:" $ Clamp( int( Eff ), 0, 100 ) $ "%" $ " HS:" $ PlayerStats.Headshots $ " SAVES:"$ PlayerStats.Saves); // zac wuz here - putting hs, eff, tm on same line
 
       // Draw the country flag
       if(PlayerStats.CountryPrefix != "")
@@ -424,7 +457,7 @@ function SmartCTFShowScores( Canvas C )
         TempStr = "PL:" $ Ordered[i].PacketLoss $ "%";
         if( Len( TempStr ) > 5 ) TempStr = "L:" $ Ordered[i].PacketLoss $ "%";
         if( Len( TempStr ) > 5 ) TempStr = "L:" $ Ordered[i].PacketLoss;
-        if( Len( TempStr ) > 5 ) TempStr = Ordered[i].PacketLoss $ "%";
+        if( Len( TempStr ) > 5 ) TempStr = Ordered[i].PacketLoss $ "%";			
         C.DrawText( TempStr );
       }
 
@@ -464,20 +497,11 @@ function SmartCTFShowScores( Canvas C )
         DrawStatType( C, X, Y, 1, 3, "Grabs: ", PlayerStats.Grabs, MaxGrabs );
         if(SCTFGame.bExtraStats)
         {
-          if( bSealsOrDefs) {
-              DrawStatType( C, X, Y, 2, 2, "DefKills: ", PlayerStats.DefKills, MaxDefKills );
+          if( bSealsOrDefs || !bSealsOrDefs) 
+		  {
+              DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
               DrawStatType( C, X, Y, 2, 1, "Covers: ", PlayerStats.Covers, MaxCovers );
           }
-          else {
-              DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
-              DrawStatType( C, X, Y, 2, 1, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
-          }
-        }
-        else
-        {
-          DrawStatType( C, X, Y, 2, 1, "Covers: ", PlayerStats.Covers, MaxCovers );
-          if( MaxSeals > 0 ) DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
-          else DrawStatType( C, X, Y, 2, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
         }
         DrawStatType( C, X, Y, 2, 3, "FlagKls: ", PlayerStats.FlagKills, MaxFlagKills );
       }
@@ -489,24 +513,22 @@ function SmartCTFShowScores( Canvas C )
         if(SCTFGame.bExtraStats)
         {
           if( bSealsOrDefs) {
-              DrawStatType( C, X, Y, 2, 2, "DefKills: ", PlayerStats.DefKills, MaxDefKills );
-              DrawStatType( C, X, Y, 1, 2, "Covers: ", PlayerStats.Covers, MaxCovers );
+            DrawStatType( C, X, Y, 1, 2, "Covers: ", PlayerStats.Covers, MaxCovers );
+			DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );;
           }
           else {
-              DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
-              DrawStatType( C, X, Y, 1, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
+			DrawStatType( C, X, Y, 1, 2, "Covers: ", PlayerStats.Covers, MaxCovers );
+            DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );;
           }
         }
         else
         {
           DrawStatType( C, X, Y, 1, 2, "Covers: ", PlayerStats.Covers, MaxCovers );
-          if( MaxSeals > 0 ) DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
-          else DrawStatType( C, X, Y, 2, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
+          DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
         }
           DrawStatType( C, X, Y, 3, 1, "Assists: ", PlayerStats.Assists, MaxAssists );
           DrawStatType( C, X, Y, 3, 2, "FlagKls: ", PlayerStats.FlagKills, MaxFlagKills );
       }
-
       Y += StatBlockHeight + StatBlockSpacing;
     }
 
@@ -902,6 +924,9 @@ function RecountNumbers()
   MaxDeaths = 0;
   TotShieldBelts = 0;
   TotAmps = 0;
+  TotKegs = 0;
+  TotArmors = 0;
+  TotBoots= 0;
 
   for( i = 0; i < 32; i++ )
   {
@@ -923,6 +948,9 @@ function RecountNumbers()
       if( PlayerStats.Frags > MaxFrags ) MaxFrags = PlayerStats.Frags;
       TotShieldBelts += PlayerStats.ShieldBelts;
       TotAmps += PlayerStats.Amps;
+	  TotKegs += PlayerStats.Kegs;
+	  TotArmors += PlayerStats.Armors;
+	  TotBoots += PlayerStats.Boots;
     }
     if( Ordered[i].Deaths > MaxDeaths ) MaxDeaths = Ordered[i].Deaths;
   }
@@ -934,7 +962,7 @@ defaultproperties
      FragsText="Frags"
      SepText=" / "
      MoreText="More..."
-     HeaderText="[ SmartCTF 4D++ | {PiN}Kev | {DnF2}SiNiSTeR | [es]Rush | 4D++! ]"
+     HeaderText="[ SmartCTF 4Fv1 | {PiN}Kev | {DnF2}SiNiSTeR | [es]Rush | nut_zac | 4D++!  ]"
      White=(R=255,G=255,B=255)
      Gray=(R=128,G=128,B=128)
      DarkGray=(R=32,G=32,B=32)
