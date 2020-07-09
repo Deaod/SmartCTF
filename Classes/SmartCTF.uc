@@ -2,6 +2,7 @@
 // SmartCTF 4A Tweaked by {DnF2}SiNiSTeR. Released December 2004.
 // SmartCTF 4B/4C Uber Massively tweaked by {DnF2}SiNiSTeR. Released March 2005.
 // SmartCTF 4D with IpToCountry by [es]Rush. Released January 2006.
+// SmartCTF 4D++ by adminthis. Released October 2008.
 //
 // This mod changes the point system and adds features to ultimately promote Teamwork in CTF.
 // This is a CTF Mod only. It will not load in any other gametype.
@@ -10,11 +11,13 @@
 //               {DnF2}SiNiSTeR @ #DutchNet [QuakeNet IRC]
 //       or if it is about version 4D explicictly
 //               Rush on unrealadmin.org forums / mail and msn: rush@u.one.pl
+//	or if it is about version 4D++ explicictly
+//               adminthis on unrealadmin.org
 //
 //
 // CHANGELOG: See Readme
 
-class SmartCTF expands Mutator config( SmartCTF_4D );
+class SmartCTF expands Mutator config( SmartCTF_4DPlusPlus );
 
 #exec texture IMPORT NAME=meter FILE=Textures\meter.pcx GROUP=SmartCTF MIPS=OFF
 #exec texture IMPORT NAME=shade File=Textures\shade.pcx GROUP=SmartCTF MIPS=OFF
@@ -31,11 +34,11 @@ var float RedFlagCarrierTime[32], BlueFlagCarrierTime[32];
 var byte RedFCIndex, BlueFCIndex;
 var float RedAssistTimes[32], BlueAssistTimes[32], PickupTime[2];
 var FlagBase FlagStands[2];
-var bool bForcedEndGame, bTournamentGameStarted, bTooCloseForSaves;
+var bool bForcedEndGame, bTournamentGameStarted, bTooCloseForSaves, bStartTimeCorrected;
 
 /* Client Vars */
-var bool bClientJoinPlayer, bGameEnded;
-var int LogoCounter, DrawLogo;
+var bool bClientJoinPlayer, bGameEnded, bInitSb;
+var int LogoCounter, DrawLogo, SbCount;
 var PlayerPawn PlayerOwner;
 var FontInfo MyFonts;
 var TournamentGameReplicationInfo pTGRI;
@@ -62,6 +65,10 @@ var() config float SpawnKillTimeNW;
 var() config bool bAfterGodLikeMsg;
 var() config bool bStatsDrawFaces;
 var() config bool bDrawLogo;
+var() config bool bSCTFSbDef;
+var() config bool bShowSpecs;
+var() config bool bDoKeybind;
+var() config bool bExtraMsg;
 var(SmartCTFMessages) config byte CoverMsgType;
 var(SmartCTFMessages) config byte CoverSpreeMsgType;
 var(SmartCTFMessages) config byte SealMsgType;
@@ -164,6 +171,8 @@ function PostBeginPlay()
   SCTFGame.bDrawLogo = bDrawLogo;
   SCTFGame.bExtraStats = bExtraStats;
   SCTFGame.CountryFlagsPackage = CountryFlagsPackage;
+  SCTFGame.bShowSpecs = bShowSpecs;
+  SCTFGame.bDoKeybind = bDoKeybind;
 
   if( !bRememberOvertimeSetting ) bOvertime = True;
 
@@ -1062,7 +1071,7 @@ function Mutate( string MutateString, PlayerPawn Sender )
     }
     else
     {
-      Sender.ClientMessage( "SmartCTF by {PiN}Kev_HH. SmartCTF 4C by {DnF2}SiNiSTeR. 4D by [es]Rush");
+      Sender.ClientMessage( "SmartCTF by {PiN}Kev_HH. 4C by {DnF2}SiNiSTeR. 4D by [es]Rush. We run 4D++!");
       Sender.ClientMessage( "- To toggle stats, bind a key or type in console: 'Mutate SmartCTF Stats'" );
       Sender.ClientMessage( "- Type 'Mutate CTFInfo' for SmartCTF settings." );
       Sender.ClientMessage( "- Type 'Mutate SmartCTF Rules' for new point system definition." );
@@ -1453,7 +1462,8 @@ simulated event PostRender( Canvas C )
     	powered=texture'powered';
     C.SetPos( C.ClipX - powered.Usize - 16, 40 );
     C.DrawIcon( powered, 1 );
-    C.Font = MyFonts.GetBigFont( C.ClipX );
+    C.Font = MyFonts.GetSmallFont( C.ClipX );
+	//C.Font = Font(DynamicLoadObject("LadderFonts.UTLadder14", class'Font'));
     C.StrLen( "SmartCTF "$Version , Size, DummyY );
     C.SetPos( C.ClipX  - powered.Usize/2 - Size/2 - 16, 40 + 8 + powered.Vsize );
     Temp = DummyY;
@@ -1480,8 +1490,15 @@ simulated function ClientJoinServer( Pawn Other )
   else
   {
     DrawLogo = 1;
-    SetTimer( 0.05 , True);
   }
+  
+  if(bExtraMsg && bDoKeybind && SCTFGame.bDrawLogo)
+  Other.ClientMessage("Running SmartCTF " $ Version $ ". Press F3 to toggle between scoreboards.");
+  else if(bExtraMsg && bDoKeybind)
+  Other.ClientMessage("Press F3 to toggle between scoreboards."); // Shorter msg, since we already announced we are running SmartCTF.
+  
+  SetTimer( 0.05 , True);
+	  
   // Since this gets called in the HUD it needs to be changed clientside.
   if( SCTFGame.bPlay30SecSound ) class'TimeMessage'.default.TimeSound[5] = sound'Announcer.CD30Sec';
 }
@@ -1542,13 +1559,14 @@ simulated function Timer()
 {
   local bool bReady;
   local Pawn pn;
+  local SmartCTFPlayerReplicationInfo SenderStats;
 
   super.Timer();
 
   // Clients - 0.05 second timer. Stops after logo is displayed.
   if( Level.NetMode != NM_DedicatedServer )
   {
-    if( DrawLogo != 0 )
+    if( DrawLogo != 0 && SCTFGame.bDrawLogo )
     {
       LogoCounter++;
       if( DrawLogo == 510 )
@@ -1567,6 +1585,17 @@ simulated function Timer()
         DrawLogo = 5;
       }
     }
+	
+	if(!bInitSb && bSCTFSbDef){
+		if(bGameEnded){ bInitSb=true; return; } // Don't interfere with scoreboard showing on game end
+		SbCount++;
+		if(SbCount==10){ // Wait 0.5s before calling SmartCTF sb
+		SenderStats = SCTFGame.GetStats( PlayerOwner );
+        if( SenderStats != None ) SenderStats.ShowStats(true);
+		bInitSb=true; 
+		if(!SCTFGame.bDrawLogo) SetTimer(0.0,False);
+		}
+	}
   }
 
   // Server - 1 second timer. infinite.
@@ -1583,6 +1612,8 @@ simulated function Timer()
     if( SCTFGame.bShowFCLocation != bShowFCLocation ) SCTFGame.bShowFCLocation = bShowFCLocation;
     if( SCTFGame.bStatsDrawFaces != bStatsDrawFaces ) SCTFGame.bStatsDrawFaces = bStatsDrawFaces;
     if( SCTFGame.bDrawLogo != bDrawLogo ) SCTFGame.bDrawLogo = bDrawLogo;
+	if( SCTFGame.bShowSpecs != bShowSpecs ) SCTFGame.bShowSpecs = bShowSpecs;
+	if( SCTFGame.bDoKeybind != bDoKeybind ) SCTFGame.bDoKeybind = bDoKeybind;
 
     if( !bTournamentGameStarted && DeathMatchPlus( Level.Game ).bTournament )
     {
@@ -1607,13 +1638,24 @@ simulated function Timer()
         TournamentGameStarted();
       }
     }
+	
+	// UT's built-in messaging spectator is excluded from the spectator list based on its starttime.
+	// We need to make sure this does not include any players as well.
+	// Update: on slow/exotic servers, the starttime could be delayed (not 0). Let's make sure it is.
+	if(!bStartTimeCorrected && bShowSpecs)
+	{
+	for(pn = Level.PawnList; pn != None; pn = pn.NextPawn){
+	if(pn.IsA('PlayerPawn') && pn.PlayerReplicationInfo.StartTime==0) pn.PlayerReplicationInfo.StartTime=1;
+	if(!pn.bIsPlayer && pn.PlayerReplicationInfo.Playername=="Player") pn.PlayerReplicationInfo.StartTime=0;
+	}
+	if(Level.TimeSeconds>=5) bStartTimeCorrected=true; // After five seconds, the messaging spectator(s) should be loaded, so we are done.
+	}
   }
-
 }
 
 defaultproperties
 {
-     Version="4D"
+     Version="4D++"
      GameTieMessage="The game ended in a tie!"
      RedTeamColor=(R=255)
      BlueTeamColor=(G=128,B=255)
@@ -1642,6 +1684,10 @@ defaultproperties
      bAfterGodLikeMsg=True
      bStatsDrawFaces=True
      bDrawLogo=True
+     bSCTFSbDef=True
+     bShowSpecs=True
+     bDoKeybind=True
+     bExtraMsg=True
      CoverSpreeMsgType=1
      SealMsgType=1
      SavedMsgType=3

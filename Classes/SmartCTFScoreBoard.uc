@@ -661,7 +661,8 @@ function DrawFooters( Canvas C )
   local float DummyX, DummyY, Nil, X1, Y1;
   local string TextStr;
   local string TimeStr;
-  local int Hours, Minutes, Seconds;
+  local int Hours, Minutes, Seconds, i;
+  local PlayerReplicationInfo PRI;
 
   C.bCenter = True;
   C.Font = FooterFont;
@@ -698,15 +699,39 @@ function DrawFooters( Canvas C )
     Minutes = Minutes - ( Hours * 60 );
     TimeStr = ElapsedTime $ TwoDigitString( Hours ) $ ":" $ TwoDigitString( Minutes ) $ ":" $ TwoDigitString( Seconds );
   }
+
+	if(SCTFGame.bShowSpecs){
+		for ( i=0; i<32; i++ )
+		{
+			if (PlayerPawn(Owner).GameReplicationInfo.PRIArray[i] != None)
+			{
+				PRI = PlayerPawn(Owner).GameReplicationInfo.PRIArray[i];
+				if (PRI.bIsSpectator && !PRI.bWaitingPlayer && PRI.StartTime > 0)
+				{
+					if(HeaderText=="") HeaderText = pri.Playername; else HeaderText = HeaderText$", "$pri.Playername;
+				}
+			}
+		}
+		if (HeaderText=="") HeaderText = "there is currently no one spectating this match."; else HeaderText = HeaderText$".";
+	}
+  
   C.SetPos( 0, C.ClipY - 2 * DummyY );
   C.DrawText( "Current Time:" @ GetTimeStr() @ "|" @ TimeStr );
 
   // Draw Author
   C.StrLen( HeaderText, DummyX, Nil );
   C.Style = ERenderStyle.STY_Normal;
-  C.DrawColor = Yellow;
   C.SetPos( 0, C.ClipY - 4 * DummyY );
+  
+  if(SCTFGame.bShowSpecs){
+  C.Font = MyFonts.GetSmallestFont(C.ClipX);
+  C.DrawText("Spectators:"@HeaderText);
+  HeaderText=""; // This is declared as a global var, so we reset it to start with a clean slate.
+  }else{
+  C.DrawColor = Yellow;
   C.DrawText( HeaderText );
+  }
+   
   C.bCenter = False;
 }
 
@@ -909,7 +934,7 @@ defaultproperties
      FragsText="Frags"
      SepText=" / "
      MoreText="More..."
-     HeaderText="[ SmartCTF 4D | {PiN}Kev | {DnF2}SiNiSTeR | 4D by [es]Rush ]"
+     HeaderText="[ SmartCTF 4D++ | {PiN}Kev | {DnF2}SiNiSTeR | [es]Rush | 4D++! ]"
      White=(R=255,G=255,B=255)
      Gray=(R=128,G=128,B=128)
      DarkGray=(R=32,G=32,B=32)

@@ -119,7 +119,7 @@ simulated function ToggleStats()
 }
 
 // Called on the client
-simulated function ShowStats()
+simulated function ShowStats(optional bool bHide)
 {
   local PlayerPawn P;
 
@@ -134,7 +134,7 @@ simulated function ShowStats()
   else
   {
     bViewingStats = True;
-    P.bShowScores = True;
+    if(!bHide) P.bShowScores = True;
   }
 }
 
