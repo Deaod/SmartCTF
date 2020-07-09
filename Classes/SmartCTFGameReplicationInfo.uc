@@ -9,7 +9,7 @@ var bool bShowFCLocation, bStatsDrawFaces, bPlay30SecSound, bDrawLogo;
 var class<ScoreBoard> NormalScoreBoardClass;
 var SmartCTFEndStats EndStats;
 var SmartCTFPlayerReplicationInfo PRIArray[64];
-var bool bInitialized, bServerInfoSetWithPure;
+var bool bInitialized, bServerInfoSetServerSide;
 var class<HUD> DefaultHUDType;
 
 replication
@@ -19,7 +19,7 @@ replication
     bShowFCLocation, bPlay30SecSound, bStatsDrawFaces, bDrawLogo;
 
   reliable if( Role == ROLE_Authority )
-    bInitialized, TickRate, NormalScoreBoardClass, EndStats, bServerInfoSetWithPure, DefaultHUDType;
+    bInitialized, TickRate, NormalScoreBoardClass, EndStats, bServerInfoSetServerSide, DefaultHUDType;
 }
 
 simulated function PostBeginPlay()

@@ -1,6 +1,6 @@
 // SmartCTF 4 by {PiN}Kev. Released January 2004.
 // SmartCTF 4A Tweaked by {DnF2}SiNiSTeR. Released December 2004.
-// SmartCTF 4B Uber Massively tweaked by {DnF2}SiNiSTeR. Released March 2005.
+// SmartCTF 4B/4C Uber Massively tweaked by {DnF2}SiNiSTeR. Released March 2005.
 //
 // This mod changes the point system and adds features to ultimately promote Teamwork in CTF.
 // This is a CTF Mod only. It will not load in any other gametype.
@@ -10,7 +10,7 @@
 //
 // CHANGELOG: See Readme
 
-class SmartCTF expands Mutator config( SmartCTF_4B );
+class SmartCTF expands Mutator config( SmartCTF_4C );
 
 #exec texture IMPORT NAME=meter FILE=Textures\meter.pcx GROUP=SmartCTF
 #exec texture IMPORT NAME=powered File=Textures\powered.pcx GROUP=SmartCTF
@@ -25,9 +25,9 @@ var Pawn FCs[2], RedAssisters[32], BlueAssisters[32];
 var Pawn RedFlagCarrier[32], BlueFlagCarrier[32];
 var float RedFlagCarrierTime[32], BlueFlagCarrierTime[32];
 var byte RedFCIndex, BlueFCIndex;
-var float RedAssistTimes[32], BlueAssistTimes[32], PickupTime[2]; // FlagCarriedTime[2]
+var float RedAssistTimes[32], BlueAssistTimes[32], PickupTime[2];
 var FlagBase FlagStands[2];
-var bool bForcedEndGame, bTournamentGameStarted;
+var bool bForcedEndGame, bTournamentGameStarted, bTooCloseForSaves;
 
 /* Client Vars */
 var bool bClientJoinPlayer, bGameEnded;
@@ -44,7 +44,7 @@ var Color RedTeamColor, BlueTeamColor, White, Gray;
 var() config bool bEnabled;
 var(SmartCTFBonuses) config int CapBonus, AssistBonus, FlagKillBonus, CoverBonus, SealBonus, GrabBonus;
 var(SmartCTFBonuses) config float BaseReturnBonus, MidReturnBonus, EnemyBaseReturnBonus, CloseSaveReturnBonus;
-var(SmartCTFBonuses) config int SpawnKillPenalty;
+var(SmartCTFBonuses) config int SpawnKillPenalty, MinimalCapBonus;
 var() config bool bFixFlagBug;
 var() config bool bEnhancedMultiKill;
 var() config byte EnhancedMultiKillBroadcast;
@@ -52,6 +52,8 @@ var() config bool bShowFCLocation;
 var() config bool bSmartCTFServerInfo;
 var() config bool bNewCapAssistScoring;
 var() config bool bSpawnkillDetection;
+var() config float SpawnKillTimeArena;
+var() config float SpawnKillTimeNW;
 var() config bool bAfterGodLikeMsg;
 var() config bool bStatsDrawFaces;
 var() config bool bDrawLogo;
@@ -96,13 +98,43 @@ event Spawned()
  */
 function PreBeginPlay()
 {
+  local Mutator M;
+
   super.PreBeginPlay();
 
   SCTFGame.NormalScoreBoardClass = Level.Game.ScoreBoardType;
   Level.Game.ScoreBoardType = class'SmartCTFScoreBoard';
-  Level.Game.default.ScoreBoardType = class'SmartCTFScoreBoard';
+  //Level.Game.default.ScoreBoardType = class'SmartCTFScoreBoard';
+  // The above line was fatal in version 4B :E
 
   Log( "Original Scoreboard determined as" @ SCTFGame.NormalScoreBoardClass, 'SmartCTF' );
+
+  // Change F2 Server Info screen, compatible with UTPure
+  if( bSmartCTFServerInfo )
+  {
+    class<ChallengeHUD>( Level.Game.HUDType ).default.ServerInfoClass = class'SmartCTFServerInfo';
+    for( M = Level.Game.BaseMutator; M != None; M = M.NextMutator )
+    {
+      if( M.IsA( 'UTPure' ) ) // Let UTPure rehandle the scoreboard
+      {
+        M.PreBeginPlay();
+        SCTFGame.bServerInfoSetServerSide = True; // No need for the old fashioned way - it can be set server side.
+        Log( "Notified UTPure HUD to use SmartCTF ServerInfo.", 'SmartCTF' );
+        break;
+      }
+    }
+    if( SCTFGame.bServerInfoSetServerSide && Level.Game.HUDType.Name != 'PureCTFHUD' )
+    {
+      // In this scenario another mod intervered and we still have to do it the old fashion way.
+      SCTFGame.bServerInfoSetServerSide = False;
+      Log( "HUD is not the UTPure HUD but" @ Level.Game.HUDType.Name $ ", so SmartCTF ServerInfo will be set clientside.", 'SmartCTF' );
+    }
+    if( !SCTFGame.bServerInfoSetServerSide ) SCTFGame.DefaultHUDType = Level.Game.HUDType; // And in the old fashion way, the client will have to know the current HUD type.
+  }
+  else
+  {
+    SCTFGame.bServerInfoSetServerSide = True; // We didn't change anything, but neither do we want clientside intervention.
+  }
 }
 
 /*
@@ -111,14 +143,12 @@ function PreBeginPlay()
 function PostBeginPlay()
 {
   local FlagBase fb;
-  local CTFGame DMP;
-  local Mutator M;
 
   Level.Game.Spawn( class'SmartCTFSpawnNotifyPRI' );
 
   SaveConfig(); // Create the .ini if its not already there.
 
-  Level.Game.RegisterMessageMutator( Self );
+  Level.Game.RegisterMessageMutator( self );
 
   // Since we have problem replicating config variables...
   SCTFGame.bShowFCLocation = bShowFCLocation;
@@ -133,30 +163,9 @@ function PostBeginPlay()
 
   // Get the Flag bases
   ForEach AllActors( class'FlagBase', fb ) FlagStands[ fb.Team ] = fb;
+  if( VSize( FlagStands[0].Location - FlagStands[1].Location ) < 1.5 * 900  ) bTooCloseForSaves = True;
 
   SCTFGame.EndStats = Spawn( class'SmartCTFEndStats', self );
-
-  // Change F2 Server Info screen, compatible with UTPure
-  if( bSmartCTFServerInfo )
-  {
-    DMP = CTFGame( Level.Game );
-    class<ChallengeHUD>( DMP.HUDType ).default.ServerInfoClass = class'SmartCTFServerInfo';
-    for( M = Level.Game.BaseMutator; M != None; M = M.NextMutator )
-    {
-      if( M.IsA( 'UTPure' ) ) // Let UTPure rehandle the scoreboard
-      {
-        M.PreBeginPlay();
-        SCTFGame.bServerInfoSetWithPure = True; // No need for the old fashioned way - it can be set server side.
-        break;
-      }
-    }
-    if( SCTFGame.bServerInfoSetWithPure && DMP.HUDType.Name != 'PureCTFHUD' ) SCTFGame.bServerInfoSetWithPure = False; // In this scenario another mod intervered and we still have to do it the old fashion way.
-    if( !SCTFGame.bServerInfoSetWithPure ) SCTFGame.DefaultHUDType = DMP.HUDType; // And in the old fashion way, the client will have to know the current HUD type.
-  }
-  else
-  {
-    SCTFGame.bServerInfoSetWithPure = True; // We didn't change anything, but neither do we want clientside intervention.
-  }
 
   super.PostBeginPlay();
 
@@ -443,11 +452,10 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
     }
   }
 
-  // Uber / Long Range kill if not HeadShot, trans, deemer, instarifle, or zoomed sniper.
-  // (Unzoomed) sniper can only be Uber Long Range kill.
+  // Uber / Long Range kill if not sniper, HeadShot, trans, deemer, instarifle, or vengeance relic.
   if( bShowLongRangeMsg && TournamentPlayer( Killer ) != None )
   {
-    if( DamageType != 'decapitated' && DamageType != 'Gibbed' && DamageType != 'RedeemerDeath' && SuperShockRifle( Killer.Weapon ) == None && PlayerPawn( Killer ).DesiredFOV == PlayerPawn( Killer ).DefaultFOV )
+    if( DamageType != 'shot' && DamageType != 'decapitated' && DamageType != 'Gibbed' && DamageType != 'RedeemerDeath' && SuperShockRifle( Killer.Weapon ) == None && DamageType != 'Eradicated' )
     {
       if( VSize( Killer.Location - Victim.Location ) > 1536 )
       {
@@ -455,7 +463,7 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
         {
           Killer.ReceiveLocalizedMessage( class'SmartCTFCoolMsg', 2, KillerPRI, VictimPRI );
         }
-        else if( DamageType != 'shot' )
+        else
         {
           Killer.ReceiveLocalizedMessage( class'SmartCTFCoolMsg', 1, KillerPRI, VictimPRI );
         }
@@ -474,7 +482,7 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
     TimeAwake = Level.TimeSeconds - VictimStats.SpawnTime;
     if( Level.Game.BaseMutator.MutatedDefaultWeapon() != class'Botpack.ImpactHammer' )
     { // Arena mutator used, spawnkilling must be extreme to count
-      if( TimeAwake < 1 )
+      if( TimeAwake <= SpawnKillTimeArena )
       {
         Killer.ReceiveLocalizedMessage( class'SmartCTFCoolMsg', 5, KillerPRI, VictimPRI );
         KillerPRI.Score -= SpawnKillPenalty;
@@ -485,7 +493,7 @@ function bool PreventDeath( Pawn Victim, Pawn Killer, name DamageType, vector Hi
     }
     else // No arena mutator
     {
-      if( TimeAwake < 5 )
+      if( TimeAwake < SpawnKillTimeNW )
       {
         Killer.ReceiveLocalizedMessage( class'SmartCTFCoolMsg', 5, KillerPRI, VictimPRI );
         KillerPRI.Score -= SpawnKillPenalty;
@@ -613,7 +621,7 @@ function RewardRedFlagCarriers( bool bNotPlayedLead )
       {
         if( TotalTime == 0 ) f = 0;
         else f = ( RedFlagCarrierTime[j] / TotalTime ) * ( 7 + CapBonus ); // proportionally score
-        Bonus = f;
+        Bonus = Max( f, 1 );
       }
       RedFlagCarrier[j].PlayerReplicationInfo.Score += Bonus;
 
@@ -631,7 +639,7 @@ function RewardRedFlagCarriers( bool bNotPlayedLead )
       {
         if( TotalTime == 0 ) f = 0;
         else f = ( RedFlagCarrierTime[j] / TotalTime ) * ( 7 + CapBonus );
-        Bonus = f;
+        Bonus = Max( f, MinimalCapBonus );
         FCs[0].PlayerReplicationInfo.Score += Bonus - 7; // 7 already awarded by UT
         if( bShowAssistConsoleMsg && PlayerPawn( FCs[0] ) != None ) PlayerPawn( FCs[0] ).ClientMessage( "You get " $ Bonus $ " pts for the Capture!" @ CarriedString( RedFlagCarrierTime[j], TotalTime ) );
       }
@@ -663,7 +671,7 @@ function RewardBlueFlagCarriers( bool bNotPlayedLead )
       {
         if( TotalTime == 0 ) f = 0;
         else f = ( BlueFlagCarrierTime[j] / TotalTime ) * ( 7 + CapBonus );
-        Bonus = f;
+        Bonus = Max( f, 1 );
       }
       BlueFlagCarrier[j].PlayerReplicationInfo.Score += Bonus;
 
@@ -680,7 +688,7 @@ function RewardBlueFlagCarriers( bool bNotPlayedLead )
       {
         if( TotalTime == 0 ) f = 0;
         else f = ( BlueFlagCarrierTime[j] / TotalTime ) * ( 7 + CapBonus );
-        Bonus = f;
+        Bonus = Max( f, MinimalCapBonus );
         FCs[1].PlayerReplicationInfo.Score += Bonus - 7;
         if( bShowAssistConsoleMsg && PlayerPawn( FCs[1] ) != None ) PlayerPawn( FCs[1] ).ClientMessage( "You get " $ Bonus $ " pts for the Capture!" @ CarriedString( BlueFlagCarrierTime[j], TotalTime ) );
       }
@@ -860,7 +868,7 @@ function bool MutatorBroadcastLocalizedMessage( Actor Sender, Pawn Receiver, out
           if( Switch == 1 )
           {
             // 8 pts for a close save (with msg), Half a pt for base returns, 2 pts for Mid, 4 pts for enemy base
-            if( VSize( Flag.Location - FlagStands[1 - Flag.Team].Location ) < 900 )
+            if( !bTooCloseForSaves && VSize( Flag.Location - FlagStands[1 - Flag.Team].Location ) < 900 )
             { // CLOSE SAVE
               RelatedPRI_1.Score += CloseSaveReturnBonus;
               if( Level.Game.LocalLog != None ) Level.Game.LocalLog.LogSpecialEvent( "flag_return_closesave", RelatedPRI_1.PlayerID, Flag.Team );
@@ -1469,9 +1477,10 @@ simulated function Tick( float delta )
       ForEach AllActors( class'SmartCTFGameReplicationInfo', SCTFGame ) break;
       if( SCTFGame == None ) return;
 
-      if( !SCTFGame.bServerInfoSetWithPure && SCTFGame.DefaultHUDType != None ) // client side required
+      if( !SCTFGame.bServerInfoSetServerSide && SCTFGame.DefaultHUDType != None ) // client side required
       {
         class<ChallengeHUD>( SCTFGame.DefaultHUDType ).default.ServerInfoClass = class'SmartCTFServerInfo';
+        Log( "Notified HUD (clientside," @ SCTFGame.DefaultHUDType.Name $ ") to use SmartCTF ServerInfo.", 'SmartCTF' );
       }
     }
     if( !SCTFGame.bInitialized ) return;
@@ -1577,9 +1586,9 @@ simulated function Timer()
 
 defaultproperties
 {
-     Version="4B"
+     Version="4C"
      GameTieMessage="The game ended in a tie!"
-     LogoText="SmartCTF 4B"
+     LogoText="SmartCTF 4C"
      RedTeamColor=(R=255)
      BlueTeamColor=(G=128,B=255)
      White=(R=255,G=255,B=255)
@@ -1594,13 +1603,15 @@ defaultproperties
      EnemyBaseReturnBonus=4.000000
      CloseSaveReturnBonus=8.000000
      SpawnKillPenalty=1
+     MinimalCapBonus=5
      bFixFlagBug=True
-     bEnhancedMultiKill=True
      EnhancedMultiKillBroadcast=3
      bShowFCLocation=True
      bSmartCTFServerInfo=True
      bNewCapAssistScoring=True
      bSpawnkillDetection=True
+     SpawnKillTimeArena=1.000000
+     SpawnKillTimeNW=3.500000
      bAfterGodLikeMsg=True
      bStatsDrawFaces=True
      bDrawLogo=True

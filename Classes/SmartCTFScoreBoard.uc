@@ -1,5 +1,7 @@
 class SmartCTFScoreBoard extends UnrealCTFScoreBoard;
 
+#exec texture IMPORT NAME=faceless File=Textures\faceless.pcx GROUP=SmartCTF
+
 var ScoreBoard NormalScoreBoard;
 var SmartCTFGameReplicationInfo SCTFGame;
 var SmartCTFPlayerReplicationInfo OwnerStats;
@@ -68,7 +70,7 @@ function SpawnNormalScoreBoard()
   if( SCTFGame != None && SCTFGame.NormalScoreBoardClass != None )
   {
     NormalScoreBoard = Spawn( SCTFGame.NormalScoreBoardClass, PlayerOwner );
-    Log( "Spawned as" @ NormalScoreBoard, 'SmartCTF' );
+    Log( "Determined and spawned original scoreboard as" @ NormalScoreBoard, 'SmartCTF' );
   }
 }
 
@@ -300,13 +302,14 @@ function SmartCTFShowScores( Canvas C )
     {
 
       // Draw the face
-      if( SCTFGame.bStatsDrawFaces && Ordered[i].HasFlag == None && Ordered[i].TalkTexture != None )
+      if( Ordered[i].HasFlag == None )
       {
         C.bNoSmooth = False;
         C.DrawColor = White;
         C.Style = ERenderStyle.STY_Translucent;
         C.SetPos( X, Y );
-        C.DrawIcon( Ordered[i].TalkTexture, 0.5 );
+        if( SCTFGame.bStatsDrawFaces && Ordered[i].TalkTexture != None ) C.DrawIcon( Ordered[i].TalkTexture, 0.5 );
+        else C.DrawIcon( texture'faceless', 0.5 );
         C.SetPos( X, Y );
         C.DrawColor = DarkGray;
         C.DrawIcon( texture'IconSelection', 1 );
@@ -818,7 +821,7 @@ defaultproperties
      FragsText="Frags"
      SepText=" / "
      MoreText="More..."
-     HeaderText="[ SmartCTF 4B | {PiN}Kev | {DnF2}SiNiSTeR | January 2005 | http://www.dnfclan.com/~sin/SmartCTF ]"
+     HeaderText="[ SmartCTF 4C | {PiN}Kev | {DnF2}SiNiSTeR | March 2005 | http://www.dnfclan.com/~sin/SmartCTF ]"
      White=(R=255,G=255,B=255)
      Gray=(R=128,G=128,B=128)
      DarkGray=(R=32,G=32,B=32)

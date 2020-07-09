@@ -275,7 +275,7 @@ function DrawLeaderBoard( Canvas C, GameReplicationInfo GRI )
 
   C.DrawColor = InfoWhite;
 
-  EndStats = SCTFGame.EndStats;
+  if( SCTFGame != None ) EndStats = SCTFGame.EndStats;
   if( EndStats != None )
   {
     for( i = 0; i < 6; i++ )
