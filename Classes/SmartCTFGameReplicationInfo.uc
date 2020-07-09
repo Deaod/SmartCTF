@@ -6,6 +6,7 @@ class SmartCTFGameReplicationInfo expands ReplicationInfo;
 
 var int TickRate;
 var bool bShowFCLocation, bStatsDrawFaces, bPlay30SecSound, bDrawLogo, bExtraStats, bShowSpecs, bDoKeybind;
+var float SbDelayC;
 var string CountryFlagsPackage;
 var class<ScoreBoard> NormalScoreBoardClass;
 var SmartCTFEndStats EndStats;
@@ -20,7 +21,7 @@ replication
     bShowFCLocation, bPlay30SecSound, bStatsDrawFaces, bDrawLogo, bExtraStats, CountryFlagsPackage, bShowSpecs, bDoKeybind;
 
   reliable if( Role == ROLE_Authority )
-    bInitialized, TickRate, NormalScoreBoardClass, EndStats, bServerInfoSetServerSide, DefaultHUDType, DoBind;
+    bInitialized, TickRate, NormalScoreBoardClass, EndStats, bServerInfoSetServerSide, DefaultHUDType, DoBind, SbDelayC;
 }
 
 simulated function PostBeginPlay()

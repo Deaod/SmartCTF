@@ -35,10 +35,12 @@ var byte RedFCIndex, BlueFCIndex;
 var float RedAssistTimes[32], BlueAssistTimes[32], PickupTime[2];
 var FlagBase FlagStands[2];
 var bool bForcedEndGame, bTournamentGameStarted, bTooCloseForSaves, bStartTimeCorrected;
+var int MsgPID;
 
 /* Client Vars */
 var bool bClientJoinPlayer, bGameEnded, bInitSb;
 var int LogoCounter, DrawLogo, SbCount;
+var float SbDelayC;
 var PlayerPawn PlayerOwner;
 var FontInfo MyFonts;
 var TournamentGameReplicationInfo pTGRI;
@@ -69,6 +71,8 @@ var() config bool bSCTFSbDef;
 var() config bool bShowSpecs;
 var() config bool bDoKeybind;
 var() config bool bExtraMsg;
+var() config float SbDelay;
+var() config float MsgDelay;
 var(SmartCTFMessages) config byte CoverMsgType;
 var(SmartCTFMessages) config byte CoverSpreeMsgType;
 var(SmartCTFMessages) config byte SealMsgType;
@@ -173,7 +177,8 @@ function PostBeginPlay()
   SCTFGame.CountryFlagsPackage = CountryFlagsPackage;
   SCTFGame.bShowSpecs = bShowSpecs;
   SCTFGame.bDoKeybind = bDoKeybind;
-
+  SCTFGame.SbDelayC = SbDelayC;
+  
   if( !bRememberOvertimeSetting ) bOvertime = True;
 
   // Works serverside!
@@ -184,10 +189,12 @@ function PostBeginPlay()
   if( VSize( FlagStands[0].Location - FlagStands[1].Location ) < 1.5 * 900  ) bTooCloseForSaves = True;
 
   SCTFGame.EndStats = Spawn( class'SmartCTFEndStats', self );
-
+  
   super.PostBeginPlay();
 
   if( Level.NetMode == NM_DedicatedServer ) SetTimer( 1.0 , True);
+  
+  MsgPID=-1; // First PID is 0, so it wouldn't get messaged if we kept MsgPID at it's default value.
 
   Log( "SmartCTF" @ Version @ "loaded successfully.", 'SmartCTF' );
 }
@@ -1483,19 +1490,8 @@ simulated function ClientJoinServer( Pawn Other )
 {
   if( PlayerPawn( Other ) == None || !Other.bIsPlayer ) return;
 
-  if( !SCTFGame.bDrawLogo )
-  {
-    Other.ClientMessage( "Running SmartCTF " $ Version $ ". Type 'Mutate SmartCTF' in the console for info." );
-  }
-  else
-  {
-    DrawLogo = 1;
-  }
-  
-  if(bExtraMsg && bDoKeybind && SCTFGame.bDrawLogo)
-  Other.ClientMessage("Running SmartCTF " $ Version $ ". Press F3 to toggle between scoreboards.");
-  else if(bExtraMsg && bDoKeybind)
-  Other.ClientMessage("Press F3 to toggle between scoreboards."); // Shorter msg, since we already announced we are running SmartCTF.
+  if(SCTFGame.bDrawLogo)
+  DrawLogo = 1;
   
   SetTimer( 0.05 , True);
 	  
@@ -1509,7 +1505,6 @@ simulated function ClientJoinServer( Pawn Other )
  */
 simulated function Tick( float delta )
 {
-  local int i;
   local SmartCTFPlayerReplicationInfo OwnerStats;
 
   // Execute on client
@@ -1585,15 +1580,15 @@ simulated function Timer()
         DrawLogo = 5;
       }
     }
-	
+
 	if(!bInitSb && bSCTFSbDef){
 		if(bGameEnded){ bInitSb=true; return; } // Don't interfere with scoreboard showing on game end
 		SbCount++;
-		if(SbCount==10){ // Wait 0.5s before calling SmartCTF sb
+		if(SbCount>=SCTFGame.SbDelayC){ // Wait SbDelayC second(s) before calling SmartCTF sb
 		SenderStats = SCTFGame.GetStats( PlayerOwner );
         if( SenderStats != None ) SenderStats.ShowStats(true);
 		bInitSb=true; 
-		if(!SCTFGame.bDrawLogo) SetTimer(0.0,False);
+		if(!SCTFGame.bDrawLogo && Role != ROLE_Authority) SetTimer(0.0,False);
 		}
 	}
   }
@@ -1606,6 +1601,8 @@ simulated function Timer()
       SCTFGame.TickRate = int( ConsoleCommand( "get IpDrv.TcpNetDriver NetServerMaxTickRate" ) );
       TRCount = 0;
     }
+	
+	SbDelayC = SbDelay*20; // Timer is called every 0.05s, so * 20 converts the value in seconds to our count compatible value
 
     // Update config vars to client / manual replication :E
     // Allows for runtime changing of settings.
@@ -1614,6 +1611,7 @@ simulated function Timer()
     if( SCTFGame.bDrawLogo != bDrawLogo ) SCTFGame.bDrawLogo = bDrawLogo;
 	if( SCTFGame.bShowSpecs != bShowSpecs ) SCTFGame.bShowSpecs = bShowSpecs;
 	if( SCTFGame.bDoKeybind != bDoKeybind ) SCTFGame.bDoKeybind = bDoKeybind;
+	if( SCTFGame.SbDelayC != SbDelayC ) SCTFGame.SbDelayC = SbDelayC;
 
     if( !bTournamentGameStarted && DeathMatchPlus( Level.Game ).bTournament )
     {
@@ -1649,6 +1647,20 @@ simulated function Timer()
 	if(!pn.bIsPlayer && pn.PlayerReplicationInfo.Playername=="Player") pn.PlayerReplicationInfo.StartTime=0;
 	}
 	if(Level.TimeSeconds>=5) bStartTimeCorrected=true; // After five seconds, the messaging spectator(s) should be loaded, so we are done.
+	}
+
+	// Since PlayerID's are incremented in the order of player joins [and those joined later cannot have an earlier StartTime than preceding players], this can be reliably used to deliver each player the delayed message only once 
+	// without having to resort to a large array of PIDs already messaged; we can simply check against the *last* PID messaged instead.
+	// Too bad the timer only runs at 1.0. That sorf of defies the purpose of MsgDelay being a float instead of an int. O well... matches nice with SbDelay ;)
+	for(pn = Level.PawnList; pn != None; pn = pn.NextPawn)
+	if(pn.IsA('PlayerPawn') && pn.bIsPlayer && Level.TimeSeconds - pn.PlayerReplicationInfo.StartTime >= MsgDelay && pn.PlayerReplicationInfo.PlayerID>MsgPID){
+	if(!SCTFGame.bDrawLogo)
+	pn.ClientMessage( "Running SmartCTF " $ Version $ ". Type 'Mutate SmartCTF' in the console for info." );
+	if(bExtraMsg && bDoKeybind && SCTFGame.bDrawLogo)
+	pn.ClientMessage("Running SmartCTF " $ Version $ ". Press F3 to toggle between scoreboards.");
+	else if(bExtraMsg && bDoKeybind)
+	pn.ClientMessage("Press F3 to toggle between scoreboards."); // Shorter msg, since we already announced we are running SmartCTF.
+	MsgPID = pn.PlayerReplicationInfo.PlayerID; // Increase to keep track of whom still to message
 	}
   }
 }
@@ -1688,6 +1700,8 @@ defaultproperties
      bShowSpecs=True
      bDoKeybind=True
      bExtraMsg=True
+     SbDelay=0.500000
+     MsgDelay=3.000000
      CoverSpreeMsgType=1
      SealMsgType=1
      SavedMsgType=3
