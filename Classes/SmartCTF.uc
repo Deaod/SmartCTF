@@ -3,6 +3,7 @@
 // SmartCTF 4B/4C Uber Massively tweaked by {DnF2}SiNiSTeR. Released March 2005.
 // SmartCTF 4D with IpToCountry by [es]Rush. Released January 2006.
 // SmartCTF 4D++ by adminthis. Released October 2008.
+// SmartCTF 4E by adminthis & The_Cowboy & Sp0ngeb0b. Released December 2009.
 //
 // This mod changes the point system and adds features to ultimately promote Teamwork in CTF.
 // This is a CTF Mod only. It will not load in any other gametype.
@@ -14,10 +15,14 @@
 //	or if it is about version 4D++ explicictly
 //               adminthis on unrealadmin.org
 //
+//     or if it is about about version 4E
+//               The_Cowboy on unrealadmin.org
+//               Sp0ngeb0b on unrealadmin.org , or spongebobut@yahoo.com
+//               SnowyScoreboard added in 4E. Supported by Sp0ngeb0b.
 //
-// CHANGELOG: See Readme
-
-class SmartCTF expands Mutator config( SmartCTF_4DPlusPlus );
+// CHANGELOG: See Readme 
+// TO DO:Improve algorithm of storing stats
+class SmartCTF expands Mutator config( SmartCTF_4E );
 
 #exec texture IMPORT NAME=meter FILE=Textures\meter.pcx GROUP=SmartCTF MIPS=OFF
 #exec texture IMPORT NAME=shade File=Textures\shade.pcx GROUP=SmartCTF MIPS=OFF
@@ -93,11 +98,14 @@ var() config bool bStatsDrawFaces;
 var() config bool bDrawLogo;
 var() config bool bSCTFSbDef;
 var() config bool bShowSpecs;
+var() config color SpectatorColor;
 var() config bool bDoKeybind;
 var() config bool bExtraMsg;
 var() config float SbDelay;
 var() config float MsgDelay;
 var() config bool  bStoreStats;
+var() config bool bSnowyScoreboard;
+var() config bool bXmasImages;
 var(SmartCTFMessages) config byte CoverMsgType;
 var(SmartCTFMessages) config byte CoverSpreeMsgType;
 var(SmartCTFMessages) config byte SealMsgType;
@@ -144,6 +152,10 @@ function PreBeginPlay()
 
   super.PreBeginPlay();
   SCTFGame.NormalScoreBoardClass = Level.Game.ScoreBoardType;
+  if (bSnowyScoreboard)
+  {
+    level.game.scoreBoardType = class'SmartCTFSnowyScoreboard';
+  } else
   Level.Game.ScoreBoardType = class'SmartCTFScoreBoard';
   //Level.Game.default.ScoreBoardType = class'SmartCTFScoreBoard';
   // The above line was fatal in version 4B :E
@@ -203,9 +215,13 @@ function PostBeginPlay()
   SCTFGame.bDrawLogo = bDrawLogo;
   SCTFGame.bExtraStats = bExtraStats;
   SCTFGame.CountryFlagsPackage = CountryFlagsPackage;
+  SCTFGame.bSCTFSbDef = bSCTFSbDef;
   SCTFGame.bShowSpecs = bShowSpecs;
   SCTFGame.bDoKeybind = bDoKeybind;
   SCTFGame.SbDelayC = SbDelayC;
+  SCTFGame.SpectatorColor = SpectatorColor;
+  SCTFGame.bSnowyScoreboard = bSnowyScoreboard;
+  SCTFGame.bXmasImages = bXmasImages;
   
   if( !bRememberOvertimeSetting ) bOvertime = True;
 
@@ -320,12 +336,11 @@ function ModifyPlayer( Pawn Other )
 						OtherStats.SealSpree=GoneStats[i].SealSpree;
 						OtherStats.SpawnKillSpree=GoneStats[i].SpawnKillSpree;
 						OtherStats.bHadFirstSpawn =True;
+						}
 						Other.PlayerReplicationInfo.Score=GoneScore[i];
 						Other.PlayerReplicationInfo.Deaths=GoneDeaths[i];
-						OtherStats.bHadFirstSpawn=False;
 						CleanGone(i);
 						Log("  ## Stats are restored");
-						}
 						break;
 					}
 				}
@@ -564,6 +579,7 @@ function UpdateInfo()
 	local	int		i,j,k;
 	local	string	IP;
 	local	Pawn	P;
+	local SmartCTFPlayerReplicationInfo PI;
 
 	//clear the previous name values, so we don't double register any players
 	for(k=0; k<32; k++)
@@ -586,8 +602,9 @@ function UpdateInfo()
 			StoreScore[i]=P.PlayerReplicationInfo.Score;
 			StoreDeaths[i]=P.PlayerReplicationInfo.Deaths;
 			StoreIP[i]=IP;
-			if (SCTFGame.GetStats( P ) != none)
-			StoreStats[i] = SCTFGame.GetStats( P );
+			PI = SCTFGame.GetStats( P );
+			If(PI!= none)
+			StoreStats[i]=PI;
 			i++;
 		}
 	}
@@ -1383,7 +1400,7 @@ function Mutate( string MutateString, PlayerPawn Sender )
     }
     else
     {
-      Sender.ClientMessage( "SmartCTF by {PiN}Kev_HH. 4C by {DnF2}SiNiSTeR. 4D by [es]Rush. We run 4D++!");
+      Sender.ClientMessage( "SmartCTF by {PiN}Kev_HH. 4C by {DnF2}SiNiSTeR. 4D by [es]Rush. 4E by adminthis & The_Cowboy & Sp0ngeb0b!");
       Sender.ClientMessage( "- To toggle stats, bind a key or type in console: 'Mutate SmartCTF Stats'" );
       Sender.ClientMessage( "- Type 'Mutate CTFInfo' for SmartCTF settings." );
       Sender.ClientMessage( "- Type 'Mutate SmartCTF Rules' for new point system definition." );
@@ -1843,7 +1860,7 @@ simulated function Tick( float delta )
       {
         bGameEnded = True;
         OwnerStats = SCTFGame.GetStatsByPRI( pPRI );
-        //if( OwnerStats != None ) OwnerStats.ShowStats();
+        //if( OwnerStats != None ) OwnerStats.bGameEnded();
         OwnerStats.bEndStats = True;
         PlayerOwner.ConsoleCommand( "mutate SmartCTF ForceStats" );
       }
@@ -1889,19 +1906,38 @@ simulated function Timer()
         DrawLogo = 5;
       }
     }
-
-	if(!bInitSb && bSCTFSbDef){
+    
+    if(!bInitSb && SCTFGame.bSCTFSbDef){ // SCTFGame fixes bSCTFSbDef bug.
 		if(bGameEnded){ bInitSb=true; return; } // Don't interfere with scoreboard showing on game end
 		SbCount++;
 		if(SbCount>=SCTFGame.SbDelayC){ // Wait SbDelayC second(s) before calling SmartCTF sb
 		SenderStats = SCTFGame.GetStats( PlayerOwner );
         if( SenderStats != None ) SenderStats.ShowStats(true);
-		bInitSb=true; 
+		bInitSb=true;
 		if(!SCTFGame.bDrawLogo && Role != ROLE_Authority) SetTimer(0.0,False);
 		}
 	}
   }
-
+    // The following part is rewritten by Sp0ngeb0b. Works too, but doesnt have to be used.
+    /*if(!bInitSb && SCTFGame.bSCTFSbDef) {
+      if(bGameEnded) {
+        bInitSb=true;
+        return;
+      }
+      SbCount++;
+      if(SbCount>=SCTFGame.SbDelayC && SCTFGame.bSCTFSbDef) {
+        SenderStats = SCTFGame.GetStats( PlayerOwner );
+        if( SenderStats != None ) {
+          SenderStats.ShowStats(true);
+          bInitSb=true;
+        }
+      }
+    }
+    
+    if(!SCTFGame.bDrawLogo && bInitSb && Role != ROLE_Authority) {
+      SetTimer(0.0,False);
+    }
+  }*/
   // Server - 1 second timer. infinite.
   if( Level.NetMode == NM_DedicatedServer || Role == ROLE_Authority )
   {
@@ -1918,9 +1954,13 @@ simulated function Timer()
     if( SCTFGame.bShowFCLocation != bShowFCLocation ) SCTFGame.bShowFCLocation = bShowFCLocation;
     if( SCTFGame.bStatsDrawFaces != bStatsDrawFaces ) SCTFGame.bStatsDrawFaces = bStatsDrawFaces;
     if( SCTFGame.bDrawLogo != bDrawLogo ) SCTFGame.bDrawLogo = bDrawLogo;
+   if( SCTFGame.bSCTFSbDef != bSCTFSbDef ) SCTFGame.bSCTFSbDef = bSCTFSbDef;
 	if( SCTFGame.bShowSpecs != bShowSpecs ) SCTFGame.bShowSpecs = bShowSpecs;
+		if( SCTFGame.SpectatorColor != SpectatorColor ) SCTFGame.SpectatorColor = SpectatorColor;
 	if( SCTFGame.bDoKeybind != bDoKeybind ) SCTFGame.bDoKeybind = bDoKeybind;
 	if( SCTFGame.SbDelayC != SbDelayC ) SCTFGame.SbDelayC = SbDelayC;
+  if( SCTFGame.bSnowyScoreboard != bSnowyScoreboard ) SCTFGame.bSnowyScoreboard = bSnowyScoreboard;
+    if( SCTFGame.bXmasImages != bXmasImages ) SCTFGame.bXmasImages = bXmasImages;
 
     if( !bTournamentGameStarted && DeathMatchPlus( Level.Game ).bTournament )
     {
@@ -1973,53 +2013,19 @@ simulated function Timer()
 	}
   }
   
-    //Shuffle backup 1 val's into the backup 2 array and clear the backup 1 array.
-	//It's enough to clear just the names, as that is what is checked in the for
-	//loops above.
-	for(k=0; k<32; k++)
-	{
-		B2Name[k]=B1Name[k];
-		B2Score[k]=B1Score[k];
-		B2Deaths[k]=B1Deaths[k];
-		B2IP[k]=B1IP[k];
-		B2Stats[k]=B1Stats[k];
-
-		B1Name[k]="";
-	}
-	
-	for(P=Level.PawnList ; P!=none; P=P.nextPawn)
-	{
-		if( PlayerPawn(P)!=none && P.bIsPlayer && !P.IsA('Spectator') && !P.IsA('Bot')&& P.PlayerReplicationInfo!=none && P.PlayerReplicationInfo.PlayerName!="Player"&& (P.PlayerReplicationInfo.Score!=0 || P.PlayerReplicationInfo.Deaths!=0) )
-		{
-			IP=PlayerPawn(P).GetPlayerNetworkAddress();
-			if( IP!="" )
-			{
-				j=InStr(IP,":");
-				if( j!=-1 )
-					IP=Left(IP,j);
-			}
-			B1Name[i]=P.PlayerReplicationInfo.PlayerName;
-			B1Score[i]=P.PlayerReplicationInfo.Score;
-			B1Deaths[i]=P.PlayerReplicationInfo.Deaths;
-			if(SCTFGame.GetStats( P ) != none)
-			B1Stats[i]=SCTFGame.GetStats( P );
-			B1IP[i]=IP;
-			i++;
-		}
-	}
+   
   
 }
 
 defaultproperties
 {
-     Version="4D++"
+     version="4E"
      GameTieMessage="The game ended in a tie!"
      RedTeamColor=(R=255)
      BlueTeamColor=(G=128,B=255)
      White=(R=255,G=255,B=255)
      Gray=(R=128,G=128,B=128)
      bEnabled=True
-     bExtraStats=True
      CountryFlagsPackage="CountryFlags2"
      CapBonus=15
      AssistBonus=7
@@ -2045,11 +2051,13 @@ defaultproperties
      bDrawLogo=True
      bSCTFSbDef=True
      bShowSpecs=True
+     SpectatorColor=(R=255,G=255,B=255)
      bDoKeybind=True
      bExtraMsg=True
      SbDelay=5.500000
      MsgDelay=7.000000
      bStoreStats=True
+     bXmasImages=True
      CoverMsgType=2
      CoverSpreeMsgType=3
      SealMsgType=3

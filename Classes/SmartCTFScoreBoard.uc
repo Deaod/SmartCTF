@@ -9,7 +9,7 @@ var SmartCTFPlayerReplicationInfo OwnerStats;
 var int TryCount;
 var PlayerPawn PlayerOwner;
 
-var string PtsText, FragsText, SepText, MoreText, HeaderText;
+var string PtsText, FragsText, SepText, MoreText, HeaderText, HeaderText2;
 var int LastSortTime, MaxMeterWidth;
 var byte ColorChangeSpeed, RowColState;
 var Color White, Gray, DarkGray, Yellow, RedTeamColor, BlueTeamColor, RedHeaderColor, BlueHeaderColor, StatsColor, FooterColor, HeaderColor, TinyInfoColor, HeaderTinyInfoColor;
@@ -663,6 +663,8 @@ function DrawFooters( Canvas C )
   local string TimeStr;
   local int Hours, Minutes, Seconds, i;
   local PlayerReplicationInfo PRI;
+  local color specColor;
+  local int baseX, baseY;
 
   C.bCenter = True;
   C.Font = FooterFont;
@@ -712,25 +714,34 @@ function DrawFooters( Canvas C )
 				}
 			}
 		}
-		if (HeaderText=="") HeaderText = "there is currently no one spectating this match."; else HeaderText = HeaderText$".";
-	}
-  
+		if (HeaderText=="") HeaderText = "there is currently no one spectating this match."; else HeaderText = HeaderText$"."; // I'm sorry about this, it's really stupid
+	}                                                                                                                       //  but I'm to lazy rewrite it :P
+                                                                                                                         // Atleast it's working..
   C.SetPos( 0, C.ClipY - 2 * DummyY );
   C.DrawText( "Current Time:" @ GetTimeStr() @ "|" @ TimeStr );
 
-  // Draw Author
+  // Draw Spectators
   C.StrLen( HeaderText, DummyX, Nil );
   C.Style = ERenderStyle.STY_Normal;
-  C.SetPos( 0, C.ClipY - 4 * DummyY );
+  C.SetPos( 0, C.ClipY - 5 * DummyY );
   
   if(SCTFGame.bShowSpecs){
+  specColor = SCTFGame.SpectatorColor;
   C.Font = MyFonts.GetSmallestFont(C.ClipX);
+  C.DrawColor = specColor;      // Added in 4E
   C.DrawText("Spectators:"@HeaderText);
   HeaderText=""; // This is declared as a global var, so we reset it to start with a clean slate.
   }else{
-  C.DrawColor = Yellow;
-  C.DrawText( HeaderText );
+  C.DrawText( "" );      // Don't draw credits 2 times
   }
+  
+  // Draw new-credits
+	C.StrLen( HeaderText2, DummyX, DummyY );
+	C.Style = ERenderStyle.STY_Normal;
+  C.SetPos( 0, C.ClipY - 3 * DummyY );
+	C.Font = MyFonts.GetSmallestFont(C.ClipX);
+  C.DrawColor = Yellow;
+  C.DrawText( HeaderText2 );
    
   C.bCenter = False;
 }
@@ -934,7 +945,7 @@ defaultproperties
      FragsText="Frags"
      SepText=" / "
      MoreText="More..."
-     HeaderText="[ SmartCTF 4D++ | {PiN}Kev | {DnF2}SiNiSTeR | [es]Rush | 4D++! ]"
+     HeaderText2="[ SmartCTF 4E | {PiN}Kev | {DnF2}SiNiSTeR | [es]Rush | adminthis & The_Cowboy & Sp0ngeb0b ]"
      White=(R=255,G=255,B=255)
      Gray=(R=128,G=128,B=128)
      DarkGray=(R=32,G=32,B=32)
