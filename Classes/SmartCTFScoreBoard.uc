@@ -658,7 +658,7 @@ function DrawStatType( Canvas C, int X, int Y, int Row, int Col, string Label, i
 
 function DrawFooters( Canvas C )
 {
-  local float DummyX, DummyY, Nil, X1, Y1;
+  local float DummyX, DummyY, Nil;
   local string TextStr;
   local string TimeStr;
   local int Hours, Minutes, Seconds, i;
@@ -714,7 +714,7 @@ function DrawFooters( Canvas C )
 		}
 		if (HeaderText=="") HeaderText = "there is currently no one spectating this match."; else HeaderText = HeaderText$".";
 	}
-  
+
   C.SetPos( 0, C.ClipY - 2 * DummyY );
   C.DrawText( "Current Time:" @ GetTimeStr() @ "|" @ TimeStr );
 
@@ -722,7 +722,7 @@ function DrawFooters( Canvas C )
   C.StrLen( HeaderText, DummyX, Nil );
   C.Style = ERenderStyle.STY_Normal;
   C.SetPos( 0, C.ClipY - 4 * DummyY );
-  
+
   if(SCTFGame.bShowSpecs){
   C.Font = MyFonts.GetSmallestFont(C.ClipX);
   C.DrawText("Spectators:"@HeaderText);
@@ -731,7 +731,7 @@ function DrawFooters( Canvas C )
   C.DrawColor = Yellow;
   C.DrawText( HeaderText );
   }
-   
+
   C.bCenter = False;
 }
 

@@ -2,8 +2,6 @@ class SmartCTFEnhancedDeathMessagePlus extends DeathMessagePlus;
 
 static function ClientReceive( PlayerPawn P, optional int Switch, optional PlayerReplicationInfo RelatedPRI_1, optional PlayerReplicationInfo RelatedPRI_2, optional Object OptionalObject )
 {
-  local string MultiStr;
-
   if( RelatedPRI_1 == P.PlayerReplicationInfo )
   {
     // Interdict and send the child message instead.

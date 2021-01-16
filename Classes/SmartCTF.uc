@@ -159,8 +159,6 @@ function PreBeginPlay()
 function PostBeginPlay()
 {
   local FlagBase fb;
-  local Actor A;
-  local Actor IpToCountry;
 
   Level.Game.Spawn( class'SmartCTFSpawnNotifyPRI');
 
@@ -178,7 +176,7 @@ function PostBeginPlay()
   SCTFGame.bShowSpecs = bShowSpecs;
   SCTFGame.bDoKeybind = bDoKeybind;
   SCTFGame.SbDelayC = SbDelayC;
-  
+
   if( !bRememberOvertimeSetting ) bOvertime = True;
 
   // Works serverside!
@@ -189,11 +187,11 @@ function PostBeginPlay()
   if( VSize( FlagStands[0].Location - FlagStands[1].Location ) < 1.5 * 900  ) bTooCloseForSaves = True;
 
   SCTFGame.EndStats = Spawn( class'SmartCTFEndStats', self );
-  
+
   super.PostBeginPlay();
 
   if( Level.NetMode == NM_DedicatedServer ) SetTimer( 1.0 , True);
-  
+
   MsgPID=-1; // First PID is 0, so it wouldn't get messaged if we kept MsgPID at it's default value.
 
   Log( "SmartCTF" @ Version @ "loaded successfully.", 'SmartCTF' );
@@ -1187,8 +1185,6 @@ function Mutate( string MutateString, PlayerPawn Sender )
  */
 function bool HandleEndGame()
 {
-  local TeamInfo Best;
-  local byte i, MaxTeams;
   local bool bTied;
 
   if( CTFGame( Level.Game ).Teams[0].Score == CTFGame( Level.Game ).Teams[1].Score ) bTied = True;
@@ -1273,7 +1269,6 @@ function CalcSmartCTFEndStats()
 {
   local SmartCTFPlayerReplicationInfo TopScore, TopFrags, TopCaps, TopCovers, TopFlagkills, TopHeadshots;
   local string BestRecordDate;
-  local int ID;
   local float PerHour;
   local SmartCTFPlayerReplicationInfo PawnStats;
   local PlayerReplicationInfo PRI;
@@ -1492,9 +1487,9 @@ simulated function ClientJoinServer( Pawn Other )
 
   if(SCTFGame.bDrawLogo)
   DrawLogo = 1;
-  
+
   SetTimer( 0.05 , True);
-	  
+
   // Since this gets called in the HUD it needs to be changed clientside.
   if( SCTFGame.bPlay30SecSound ) class'TimeMessage'.default.TimeSound[5] = sound'Announcer.CD30Sec';
 }
@@ -1587,7 +1582,7 @@ simulated function Timer()
 		if(SbCount>=SCTFGame.SbDelayC){ // Wait SbDelayC second(s) before calling SmartCTF sb
 		SenderStats = SCTFGame.GetStats( PlayerOwner );
         if( SenderStats != None ) SenderStats.ShowStats(true);
-		bInitSb=true; 
+		bInitSb=true;
 		if(!SCTFGame.bDrawLogo && Role != ROLE_Authority) SetTimer(0.0,False);
 		}
 	}
@@ -1601,7 +1596,7 @@ simulated function Timer()
       SCTFGame.TickRate = int( ConsoleCommand( "get IpDrv.TcpNetDriver NetServerMaxTickRate" ) );
       TRCount = 0;
     }
-	
+
 	SbDelayC = SbDelay*20; // Timer is called every 0.05s, so * 20 converts the value in seconds to our count compatible value
 
     // Update config vars to client / manual replication :E
@@ -1636,7 +1631,7 @@ simulated function Timer()
         TournamentGameStarted();
       }
     }
-	
+
 	// UT's built-in messaging spectator is excluded from the spectator list based on its starttime.
 	// We need to make sure this does not include any players as well.
 	// Update: on slow/exotic servers, the starttime could be delayed (not 0). Let's make sure it is.
@@ -1649,7 +1644,7 @@ simulated function Timer()
 	if(Level.TimeSeconds>=5) bStartTimeCorrected=true; // After five seconds, the messaging spectator(s) should be loaded, so we are done.
 	}
 
-	// Since PlayerID's are incremented in the order of player joins [and those joined later cannot have an earlier StartTime than preceding players], this can be reliably used to deliver each player the delayed message only once 
+	// Since PlayerID's are incremented in the order of player joins [and those joined later cannot have an earlier StartTime than preceding players], this can be reliably used to deliver each player the delayed message only once
 	// without having to resort to a large array of PIDs already messaged; we can simply check against the *last* PID messaged instead.
 	// Too bad the timer only runs at 1.0. That sorf of defies the purpose of MsgDelay being a float instead of an int. O well... matches nice with SbDelay ;)
 	for(pn = Level.PawnList; pn != None; pn = pn.NextPawn)
