@@ -1392,14 +1392,30 @@ simulated event PostRender( Canvas C )
   local string TempStr;
 
   // Get stuff relating to PlayerOwner, if not gotten. Also spawn Font info.
-  if( PlayerOwner == None )
-  {
+  if(PlayerOwner == none) {
     PlayerOwner = C.Viewport.Actor;
-    MyHUD = ChallengeHUD( PlayerOwner.MyHUD );
-
-    pTGRI = TournamentGameReplicationInfo( PlayerOwner.GameReplicationInfo );
+    if (PlayerOwner == none)
+      goto end;
+  }
+  if (MyHUD == none) {
+    MyHUD = ChallengeHUD(PlayerOwner.MyHUD);
+    if (MyHUD == none)
+      goto end;
+  }
+  if (pTGRI == none) {
+    pTGRI = TournamentGameReplicationInfo(PlayerOwner.GameReplicationInfo);
+    if (pTGRI == none)
+      goto end;
+  }
+  if (pPRI == none) {
     pPRI = PlayerOwner.PlayerReplicationInfo;
+    if (pPRI == none)
+      goto end;
+  }
+  if (MyFonts == none) {
     MyFonts = MyHUD.MyFonts;
+    if (MyFonts == none)
+      goto end;
   }
 
   // Draw the FC Location
@@ -1474,6 +1490,7 @@ simulated event PostRender( Canvas C )
 
   C.Style = ERenderStyle.STY_Normal;
 
+end:
   if( NextHUDMutator != None ) NextHUDMutator.PostRender( C );
 }
 
