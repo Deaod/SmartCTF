@@ -280,9 +280,9 @@ function SmartCTFShowScores( Canvas C )
       C.SetPos( X + ColumnWidth - SizeX, Y );
       C.DrawText( PtsText );
       C.Font = FragsFont;
-      C.StrLen( FragsText $ SepText, Buffer, Nil );
-      C.SetPos( X + ColumnWidth - SizeX - Buffer, Y );
-      C.DrawText( FragsText $ SepText );
+      // C.StrLen( FragsText $ SepText, Buffer, Nil );
+      // C.SetPos( X + ColumnWidth - SizeX - Buffer, Y );
+      // C.DrawText( FragsText $ SepText );
 
       C.DrawColor = HeaderTinyInfoColor;
       C.Font = TinyInfoFont;
@@ -388,7 +388,7 @@ function SmartCTFShowScores( Canvas C )
       if( PlayerStats.Frags + Ordered[i].Deaths == 0 ) Eff = 0;
       else Eff = ( PlayerStats.Frags / ( PlayerStats.Frags + Ordered[i].Deaths ) ) * 100;
       C.SetPos( X + StatIndent + Size + StatsHorSpacing, Y + ( NameHeight - DummyY * 2 ) / 2 + DummyY );
-      C.DrawText( "TM:" $ Time $ " EFF:" $ Clamp( int( Eff ), 0, 100 ) $ "%" );
+      C.DrawText( "TM:" $ Time );
 
       // Draw the country flag
       if(PlayerStats.CountryPrefix != "")
@@ -447,65 +447,22 @@ function SmartCTFShowScores( Canvas C )
       C.SetPos( X + ColumnWidth - Size, Y );
       C.DrawText( int( Ordered[i].Score ) );
 
-      C.Font = FragsFont;
-      C.StrLen( PlayerStats.Frags $ SepText, Buffer, SizeY );
-      C.SetPos( X + ColumnWidth - Size - Buffer, Y );
-      C.DrawText( PlayerStats.Frags $ SepText );
+      // C.Font = FragsFont;
+      // C.StrLen( PlayerStats.Frags $ SepText, Buffer, SizeY );
+      // C.SetPos( X + ColumnWidth - Size - Buffer, Y );
+      // C.DrawText( PlayerStats.Frags $ SepText );
 
       Y += NameHeight;
 
       // Set the Font for the stat drawing
       C.Font = StatFont;
 
-      if( RowColState == 1 )
-      {
-        DrawStatType( C, X, Y, 1, 1, "Caps: ", PlayerStats.Captures, MaxCaps );
-        DrawStatType( C, X, Y, 1, 2, "Assists: ", PlayerStats.Assists, MaxAssists );
-        DrawStatType( C, X, Y, 1, 3, "Grabs: ", PlayerStats.Grabs, MaxGrabs );
-        if(SCTFGame.bExtraStats)
-        {
-          if( bSealsOrDefs) {
-              DrawStatType( C, X, Y, 2, 2, "DefKills: ", PlayerStats.DefKills, MaxDefKills );
-              DrawStatType( C, X, Y, 2, 1, "Covers: ", PlayerStats.Covers, MaxCovers );
-          }
-          else {
-              DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
-              DrawStatType( C, X, Y, 2, 1, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
-          }
-        }
-        else
-        {
-          DrawStatType( C, X, Y, 2, 1, "Covers: ", PlayerStats.Covers, MaxCovers );
-          if( MaxSeals > 0 ) DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
-          else DrawStatType( C, X, Y, 2, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
-        }
-        DrawStatType( C, X, Y, 2, 3, "FlagKls: ", PlayerStats.FlagKills, MaxFlagKills );
-      }
-      else
-      {
-        DrawStatType( C, X, Y, 1, 1, "Caps: ", PlayerStats.Captures, MaxCaps );
-        DrawStatType( C, X, Y, 2, 1, "Grabs: ", PlayerStats.Grabs, MaxGrabs );
-
-        if(SCTFGame.bExtraStats)
-        {
-          if( bSealsOrDefs) {
-              DrawStatType( C, X, Y, 2, 2, "DefKills: ", PlayerStats.DefKills, MaxDefKills );
-              DrawStatType( C, X, Y, 1, 2, "Covers: ", PlayerStats.Covers, MaxCovers );
-          }
-          else {
-              DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
-              DrawStatType( C, X, Y, 1, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
-          }
-        }
-        else
-        {
-          DrawStatType( C, X, Y, 1, 2, "Covers: ", PlayerStats.Covers, MaxCovers );
-          if( MaxSeals > 0 ) DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
-          else DrawStatType( C, X, Y, 2, 2, "Deaths: ", Ordered[i].Deaths, MaxDeaths );
-        }
-          DrawStatType( C, X, Y, 3, 1, "Assists: ", PlayerStats.Assists, MaxAssists );
-          DrawStatType( C, X, Y, 3, 2, "FlagKls: ", PlayerStats.FlagKills, MaxFlagKills );
-      }
+      DrawStatType( C, X, Y, 1, 1, "Caps: ", PlayerStats.Captures, MaxCaps );
+      DrawStatType( C, X, Y, 1, 2, "Assists: ", PlayerStats.Assists, MaxAssists );
+      DrawStatType( C, X, Y, 1, 3, "Grabs: ", PlayerStats.Grabs, MaxGrabs );
+      DrawStatType( C, X, Y, 2, 1, "Covers: ", PlayerStats.Covers, MaxCovers );
+      DrawStatType( C, X, Y, 2, 2, "Seals: ", PlayerStats.Seals, MaxSeals );
+      DrawStatType( C, X, Y, 2, 3, "FlagKls: ", PlayerStats.FlagKills, MaxFlagKills );
 
       Y += StatBlockHeight + StatBlockSpacing;
     }
@@ -634,6 +591,13 @@ function DrawStatType( Canvas C, int X, int Y, int Row, int Col, string Label, i
 {
   local float Size, DummyY;
   local int ColorChange, M;
+  local int Tmp;
+
+  if( RowColState == 0 ) {
+    Tmp = Row;
+    Row = Col;
+    Col = Tmp;
+  }
 
   X += StatIndent + ( ( StatWidth + StatsHorSpacing ) * ( Col - 1 ) );
   Y += ( StatLineHeight * ( Row - 1 ) );
