@@ -1,3 +1,0 @@
-[Public]
-Object=(Name=SmartCTF_4DPlusPlusv3b.SmartCTF,Class=Class,MetaClass=Engine.Mutator,Description="SmartCTF 4D++")
-Object=(Name=SmartCTF_4DPlusPlusv3b.SmartCTFBinds,Class=Class,MetaClass=UTMenu.UTExtraKeyBindings)
