@@ -280,7 +280,7 @@ function SmartCTFShowScores( Canvas C )
       C.SetPos( X + ColumnWidth - SizeX, Y );
       C.DrawText( PtsText );
       C.Font = FragsFont;
-      if (pPRI.bIsSpectator)
+      if (ShouldShowFrags())
       {
         C.StrLen( FragsText $ SepText, Buffer, Nil );
         C.SetPos( X + ColumnWidth - SizeX - Buffer, Y );
@@ -391,7 +391,7 @@ function SmartCTFShowScores( Canvas C )
       if( PlayerStats.Frags + Ordered[i].Deaths == 0 ) Eff = 0;
       else Eff = ( PlayerStats.Frags / ( PlayerStats.Frags + Ordered[i].Deaths ) ) * 100;
       C.SetPos( X + StatIndent + Size + StatsHorSpacing, Y + ( NameHeight - DummyY * 2 ) / 2 + DummyY );
-      if (pPRI.bIsSpectator)
+      if (ShouldShowFrags())
         C.DrawText( "TM:" $ Time $ " EFF:" $ Clamp( int( Eff ), 0, 100 ) $ "%" );
       else
         C.DrawText( "TM:" $ Time );
@@ -453,7 +453,7 @@ function SmartCTFShowScores( Canvas C )
       C.SetPos( X + ColumnWidth - Size, Y );
       C.DrawText( int( Ordered[i].Score ) );
 
-      if (pPRI.bIsSpectator)
+      if (ShouldShowFrags())
       {
         C.Font = FragsFont;
         C.StrLen( PlayerStats.Frags $ SepText, Buffer, SizeY );
@@ -466,7 +466,7 @@ function SmartCTFShowScores( Canvas C )
       // Set the Font for the stat drawing
       C.Font = StatFont;
 
-      if (pPRI.bIsSpectator)
+      if (ShouldShowFrags())
       {
         DrawStatType( C, X, Y, 1, 1, "Caps: ", PlayerStats.Captures, MaxCaps );
         DrawStatType( C, X, Y, 1, 2, "Assists: ", PlayerStats.Assists, MaxAssists );
@@ -925,6 +925,14 @@ function RecountNumbers()
     }
     if( Ordered[i].Deaths > MaxDeaths ) MaxDeaths = Ordered[i].Deaths;
   }
+}
+
+function bool ShouldShowFrags()
+{
+  return
+    (SCTFGame != none && SCTFGame.bShowFrags) ||
+    (pPRI.bIsSpectator) ||
+    (PlayerOwner.GameReplicationInfo.GameEndedComments != "");
 }
 
 defaultproperties

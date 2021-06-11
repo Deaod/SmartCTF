@@ -13,15 +13,29 @@ var SmartCTFEndStats EndStats;
 var SmartCTFPlayerReplicationInfo PRIArray[64];
 var bool bInitialized, bServerInfoSetServerSide, bDoneBind;
 var class<HUD> DefaultHUDType;
+var bool bShowFrags;
 
 replication
 {
   // Settings
   reliable if( Role == ROLE_Authority )
-    bShowFCLocation, bPlay30SecSound, bStatsDrawFaces, bDrawLogo, bExtraStats, CountryFlagsPackage, bShowSpecs, bDoKeybind;
-
-  reliable if( Role == ROLE_Authority )
-    bInitialized, TickRate, NormalScoreBoardClass, EndStats, bServerInfoSetServerSide, DefaultHUDType, DoBind, SbDelayC;
+    bDoKeybind,
+    bDrawLogo,
+    bExtraStats,
+    bInitialized,
+    bPlay30SecSound,
+    bServerInfoSetServerSide,
+    bShowFCLocation,
+    bShowFrags,
+    bShowSpecs,
+    bStatsDrawFaces,
+    CountryFlagsPackage,
+    DefaultHUDType,
+    DoBind,
+    EndStats,
+    NormalScoreBoardClass,
+    SbDelayC,
+    TickRate;
 }
 
 simulated function PostBeginPlay()
@@ -32,16 +46,16 @@ simulated function PostBeginPlay()
 
 simulated function Timer()
 {
-	local PlayerPawn P;
+  local PlayerPawn P;
 
-	RefreshPRI();
+  RefreshPRI();
 
-	if (Level.Netmode == NM_DedicatedServer || bDoneBind || !bDoKeybind) return; // Only execute on clients,  if bind hasn't been done yet and if bind should be done.
+  if (Level.Netmode == NM_DedicatedServer || bDoneBind || !bDoKeybind) return; // Only execute on clients,  if bind hasn't been done yet and if bind should be done.
 
-	foreach AllActors(class 'PlayerPawn', P)
-	if (Viewport(P.Player) != None) break;
-	if(P!=None) DoBind(P);
-	bDoneBind=true;
+  foreach AllActors(class 'PlayerPawn', P)
+    if (Viewport(P.Player) != None) break;
+  if(P!=None) DoBind(P);
+  bDoneBind=true;
 }
 
 simulated function SmartCTFPlayerReplicationInfo GetStats( Actor P )
@@ -108,14 +122,14 @@ simulated function RefreshPRI()
 }
 
 simulated function DoBind(PlayerPawn P)
-{	
-	local string keyBinding;
+{
+  local string keyBinding;
 
-		if ((InStr( Caps(P.ConsoleCommand("Keybinding F3")), "MUTATE SMARTCTF SHOWSTATS") == -1))
-		{
-			keyBinding = P.ConsoleCommand("Keybinding F3");
-			P.ConsoleCommand("SET INPUT F3 mutate smartctf showstats|"$keyBinding);
-		}
+  if ((InStr( Caps(P.ConsoleCommand("Keybinding F3")), "MUTATE SMARTCTF SHOWSTATS") == -1))
+  {
+    keyBinding = P.ConsoleCommand("Keybinding F3");
+    P.ConsoleCommand("SET INPUT F3 mutate smartctf showstats|"$keyBinding);
+  }
 }
 
 defaultproperties
