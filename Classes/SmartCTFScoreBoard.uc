@@ -344,12 +344,10 @@ function SmartCTFShowScores( Canvas C )
       C.DrawText( "[" @ pTGRI.Teams[Ordered[i].Team].Size - Rendered[Ordered[i].Team] @ MoreText @ "]" );
       LabelDrawn[Ordered[i].Team] = 2; // "More" label also drawn
     }
-
     else if( LabelDrawn[Ordered[i].Team] != 2 )
     {
-
       // Draw the face
-      if( Ordered[i].HasFlag == None )
+      if( Ordered[i].HasFlag == None && (SCTFGame.IsInWarmup() == false || PlayerStats.bIsReady == false) )
       {
         C.bNoSmooth = False;
         C.DrawColor = White;
@@ -435,14 +433,22 @@ function SmartCTFShowScores( Canvas C )
       }
 
       // Draw the Flag if he has Flag
-      if( Ordered[i].HasFlag != None )
+      if ( (Ordered[i].HasFlag != None && Ordered[i].HasFlag.IsA('CTFFlag'))
+        || (SCTFGame.IsInWarmup() && PlayerStats.bIsReady) )
       {
         C.DrawColor = White;
         C.SetPos( X, Y );
-        if( Ordered[i].HasFlag.IsA( 'GreenFlag' ) ) C.DrawIcon( texture'GreenFlag', 1 );
-        else if( Ordered[i].HasFlag.IsA( 'YellowFlag' ) ) C.DrawIcon( texture'YellowFlag', 1 );
-        else if( Ordered[i].Team == 0 ) C.DrawIcon( texture'BlueFlag', 1 );
-        else C.DrawIcon( texture'RedFlag', 1 );
+        if (Ordered[i].HasFlag != None)
+        {
+          if( CTFFlag(Ordered[i].HasFlag).Team == 2 ) C.DrawIcon( texture'GreenFlag', 1 );
+          else if( CTFFlag(Ordered[i].HasFlag).Team == 3 ) C.DrawIcon( texture'YellowFlag', 1 );
+          else if( CTFFlag(Ordered[i].HasFlag).Team == 1 ) C.DrawIcon( texture'BlueFlag', 1 );
+          else C.DrawIcon( texture'RedFlag', 1 );
+        }
+        else
+        {
+          C.DrawIcon( texture'GreenFlag', 1 );
+        }
       } // End if he has Flag
 
       C.Font = PlayerNameFont;

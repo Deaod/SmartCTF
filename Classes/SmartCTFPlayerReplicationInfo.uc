@@ -5,6 +5,7 @@ var int Captures, Assists, Grabs, Covers, Seals, FlagKills, DefKills;
 var int Frags, HeadShots, ShieldBelts, Amps;
 
 var string CountryPrefix; // for IpToCountry
+var bool bIsReady;
 
 // Server side
 var float LastKillTime;
@@ -27,7 +28,7 @@ replication
   // Stats
   reliable if( Role == ROLE_Authority )
     Captures, Assists, Grabs, Covers, Seals, FlagKills, DefKills,
-    Frags, HeadShots, ShieldBelts, Amps, CountryPrefix;
+    Frags, HeadShots, ShieldBelts, Amps, CountryPrefix, bIsReady;
 
   // Toggle stats functions
   reliable if( Role == ROLE_Authority )

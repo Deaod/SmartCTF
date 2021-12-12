@@ -14,6 +14,8 @@ var SmartCTFPlayerReplicationInfo PRIArray[64];
 var bool bInitialized, bServerInfoSetServerSide, bDoneBind;
 var class<HUD> DefaultHUDType;
 var bool bShowFrags;
+var Mutator WarmupMutator;
+var bool bWarmup;
 
 replication
 {
@@ -29,6 +31,7 @@ replication
     bShowFrags,
     bShowSpecs,
     bStatsDrawFaces,
+    bWarmup,
     CountryFlagsPackage,
     DefaultHUDType,
     DoBind,
@@ -47,8 +50,17 @@ simulated function PostBeginPlay()
 simulated function Timer()
 {
   local PlayerPawn P;
+  local int i;
 
   RefreshPRI();
+
+  if (Role == ROLE_Authority) {
+    for(i = 0; PRIArray[i] != none; ++i)
+      if (PRIArray[i].Owner != none && PRIArray[i].Owner.Owner != none &&  PRIArray[i].Owner.Owner.IsA('PlayerPawn'))
+        PRIArray[i].bIsReady = PlayerPawn(PRIArray[i].Owner.Owner).bReadyToPlay;
+
+    bWarmup = IsInWarmup();
+  }
 
   if (Level.Netmode == NM_DedicatedServer || bDoneBind || !bDoKeybind) return; // Only execute on clients,  if bind hasn't been done yet and if bind should be done.
 
@@ -129,6 +141,44 @@ simulated function DoBind(PlayerPawn P)
   {
     keyBinding = P.ConsoleCommand("Keybinding F3");
     P.ConsoleCommand("SET INPUT F3 mutate smartctf showstats|"$keyBinding);
+  }
+}
+
+simulated function Mutator FindWarmupMutator() {
+  if (WarmupMutator != none)
+    return WarmupMutator;
+
+  foreach AllActors(class'Mutator', WarmupMutator)
+    if (WarmupMutator.IsA('MutWarmup'))
+      break;
+
+  if (WarmupMutator.IsA('MutWarmup') == false)
+    WarmupMutator = none;
+
+  return WarmupMutator;
+}
+
+simulated function bool IsInWarmup() {
+  local Mutator M;
+  local string S;
+  local ENetRole R;
+
+  if (Role == ROLE_Authority)
+  {
+    M = FindWarmupMutator();
+    if (M == none)
+      return false;
+
+    R = M.Role;
+    M.Role = ROLE_Authority;
+    S = M.GetPropertyText("bInWarmup");
+    M.Role = R;
+
+    return S ~= "true" || DeathMatchPlus(Level.Game).CountDown > 0;
+  }
+  else
+  {
+    return bWarmup;
   }
 }
 
