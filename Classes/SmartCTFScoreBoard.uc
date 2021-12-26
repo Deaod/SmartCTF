@@ -1,6 +1,7 @@
 class SmartCTFScoreBoard extends UnrealCTFScoreBoard;
 
 #exec texture IMPORT NAME=faceless File=Textures\faceless.pcx GROUP=SmartCTF
+#exec texture IMPORT NAME=SmartCTFCheck File=Textures/check.pcx GROUP=SmartCTF MIPS=OFF FLAGS=2
 
 var ScoreBoard NormalScoreBoard;
 var SmartCTFGameReplicationInfo SCTFGame;
@@ -436,10 +437,10 @@ function SmartCTFShowScores( Canvas C )
       if ( (Ordered[i].HasFlag != None && Ordered[i].HasFlag.IsA('CTFFlag'))
         || (SCTFGame.IsInWarmup() && PlayerStats.bIsReady) )
       {
-        C.DrawColor = White;
         C.SetPos( X, Y );
         if (Ordered[i].HasFlag != None)
         {
+          C.DrawColor = White;
           if( CTFFlag(Ordered[i].HasFlag).Team == 2 ) C.DrawIcon( texture'GreenFlag', 1 );
           else if( CTFFlag(Ordered[i].HasFlag).Team == 3 ) C.DrawIcon( texture'YellowFlag', 1 );
           else if( CTFFlag(Ordered[i].HasFlag).Team == 1 ) C.DrawIcon( texture'BlueFlag', 1 );
@@ -447,8 +448,10 @@ function SmartCTFShowScores( Canvas C )
         }
         else
         {
-          C.DrawIcon( texture'GreenFlag', 1 );
+          C.DrawColor = TeamColor;
+          C.DrawIcon( Texture'SmartCTFCheck', 1 );
         }
+        C.DrawColor = White;
       } // End if he has Flag
 
       C.Font = PlayerNameFont;
